@@ -23,7 +23,7 @@ from src.validator import (
 
 def _minimal_pack(**overrides) -> PackData:
     """Return a PackData with all envelope fields defaulted to empty."""
-    base = dict(codice_ean="8055712771306", dimensioni="220x80x45")
+    base = dict(codice_ean="8055712771306")
     base.update(overrides)
     return PackData(**base)
 
@@ -351,12 +351,18 @@ class TestValidate:
         assert result.overall_confidence <= 0.5
 
     def test_deterministic_fields_taken_from_parser(self) -> None:
-        parser = _minimal_pack()
-        vlm = _minimal_pack(codice_ean="9999999999999", dimensioni="100x100x100")
+        parser = _minimal_pack(
+            dimensioni=ExtractedField(value="17cm x Ø5.7cm", confidence=0.9)
+        )
+        vlm = _minimal_pack(
+            codice_ean="9999999999999",
+            dimensioni=ExtractedField(value="25cm x Ø3cm", confidence=0.6),
+        )
         result = validate(parser, vlm)
-        # codice_ean and dimensioni are deterministic — parser is authoritative.
+        # codice_ean is deterministic — parser is authoritative.
         assert result.pack.codice_ean == "8055712771306"
-        assert result.pack.dimensioni == "220x80x45"
+        # dimensioni is text_in_pdf; higher-confidence parser value wins.
+        assert result.pack.dimensioni.value == "17cm x Ø5.7cm"
 
     def test_triman_derived_field_set_correctly(self) -> None:
         parser = _minimal_pack(

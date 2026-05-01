@@ -71,9 +71,9 @@ class PackData(BaseModel):
     # -- DETERMINISTIC: from filename ------------------------------------
     # Filename pattern: {EAN}_{W}x{H}x{D}_{ProductName}.pdf
     codice_ean: str
-    dimensioni: str  # "{W}x{H}x{D}" mm, parsed directly from filename
 
     # -- TEXT_IN_PDF: product identity ----------------------------------
+    dimensioni: ExtractedField = Field(default_factory=ExtractedField)  # e.g. "17cm x Ø5.7cm"
     nome_prodotto: ExtractedField = Field(default_factory=ExtractedField)
     tipo_o_modello: ExtractedField = Field(default_factory=ExtractedField)
     colore: ExtractedField = Field(default_factory=ExtractedField)

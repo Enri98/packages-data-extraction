@@ -54,6 +54,13 @@ def parse_filename(filename: str) -> tuple[str, str, str]:
 # ---------------------------------------------------------------------------
 
 _FIELD_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "dimensioni",
+        re.compile(
+            r"(\d+(?:[.,]\d+)?\s*cm\s*x\s*Ø\s*\d+(?:[.,]\d+)?\s*cm)",
+            re.IGNORECASE,
+        ),
+    ),
     ("materiale", re.compile(r"(?:Materiale|Material)[:\s]+([^\n]+)", re.IGNORECASE)),
     ("lotto", re.compile(r"(?:Lotto|Lot)[:\s#]+([A-Z0-9\-]+)", re.IGNORECASE)),
     ("paese_di_produzione", re.compile(r"(?:Prodotto|Made)\s+in\s+([^\n,\.]+)", re.IGNORECASE)),
@@ -138,7 +145,6 @@ def extract_text_fields(pdf_path: Path) -> PackData:
 
     pack = PackData(
         codice_ean=ean,
-        dimensioni=dimensions,
         nome_prodotto=ExtractedField(value=product_name, confidence=0.9),
     )
 
@@ -161,7 +167,7 @@ def extract_text_fields(pdf_path: Path) -> PackData:
     # ------------------------------------------------------------------
     # Apply regex patterns
     # ------------------------------------------------------------------
-    fields_found: int = 3  # ean, dimensions, nome_prodotto already set
+    fields_found: int = 2  # codice_ean (deterministic) + nome_prodotto already set
 
     for field_name, pattern in _FIELD_PATTERNS:
         match = pattern.search(full_text)

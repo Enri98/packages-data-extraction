@@ -77,7 +77,6 @@ def test_extract_text_fields_returns_packdata(sample_pdf_path: Path) -> None:
 
 def test_extract_text_fields_deterministic_fields(sample_pdf_path: Path) -> None:
     result = extract_text_fields(sample_pdf_path)
-    assert result.dimensioni  # comes from filename
     assert result.nome_del_fabbricante == "MySecretCase s.r.l."
 
 
@@ -118,8 +117,11 @@ def test_extract_text_fields_ean_matches_filename(sample_pdf_path: Path) -> None
     assert result.codice_ean == expected_ean
 
 
-def test_extract_text_fields_dimensions_match_filename(sample_pdf_path: Path) -> None:
-    """Dimensions in PackData must match the dimensions parsed from the filename."""
-    _, expected_dims, _ = parse_filename(sample_pdf_path.name)
+def test_extract_text_fields_dimensioni_is_product_format(sample_pdf_path: Path) -> None:
+    """If dimensioni is extracted from PDF text, its value must use the product format."""
     result = extract_text_fields(sample_pdf_path)
-    assert result.dimensioni == expected_dims
+    if result.dimensioni.value is not None:
+        # Product format: e.g. "17cm x Ø5.7cm" — must contain "cm" and "Ø".
+        assert "cm" in result.dimensioni.value
+        assert "Ø" in result.dimensioni.value
+        assert result.dimensioni.confidence > 0.0
