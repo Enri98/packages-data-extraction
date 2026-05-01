@@ -8,9 +8,9 @@ Source of truth for:
 - The confidence/evidence envelope for non-deterministic fields.
 - Default values for constant manufacturer/importer fields.
 
-IMPORTANT — field names were inferred from CLAUDE.md and project context.
-Verify each name against the actual Sheet header before Session 5 (sheets.py).
-Fields marked # TODO need confirmation.
+Field declaration order = Google Sheet column order (columns 1–34).
+`codice_ean` is declared after the 34 sheet fields; it is the pipeline
+identity key but is NOT a Sheet column.
 """
 
 from enum import Enum
@@ -47,20 +47,20 @@ class PresenceField(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Main schema
-# Field declaration order = Google Sheet column order.
+# Main schema — 34 sheet fields in Sheet column order, then identity field.
 # ---------------------------------------------------------------------------
 
 class PackData(BaseModel):
     """
     Structured data for one packaging unit.
 
+    Fields 1–34 match the Google Sheet header in column order.
     Deterministic fields are plain str (confidence = 1.0 by definition).
     All other fields wrap their value in ExtractedField or PresenceField
     so that every cell in the Sheet carries provenance and confidence.
     """
 
-    # -- DETERMINISTIC: manufacturer / importer constants ----------------
+    # -- Column 1-4: DETERMINISTIC manufacturer / importer constants -----
     # These are always the same for this brand; VLM should still flag
     # disagreements if the PDF text differs.
     nome_del_fabbricante: str = "MySecretCase s.r.l."
@@ -68,73 +68,80 @@ class PackData(BaseModel):
     nome_dell_importatore: str = "MySecretCase s.r.l."
     indirizzo_dell_importatore: str = "Corso C. Colombo 7 - Milano 20144"
 
-    # -- DETERMINISTIC: from filename ------------------------------------
-    # Filename pattern: {EAN}_{W}x{H}x{D}_{ProductName}.pdf
-    codice_ean: str
-
-    # -- TEXT_IN_PDF: product identity ----------------------------------
-    dimensioni: ExtractedField = Field(default_factory=ExtractedField)  # e.g. "17cm x Ø5.7cm"
-    nome_prodotto: ExtractedField = Field(default_factory=ExtractedField)
+    # -- Column 5: product identity -------------------------------------
     tipo_o_modello: ExtractedField = Field(default_factory=ExtractedField)
-    colore: ExtractedField = Field(default_factory=ExtractedField)
-    codice_asin: ExtractedField = Field(default_factory=ExtractedField)  # TODO: confirm field name vs Sheet header
 
-    # -- TEXT_IN_PDF: materials -----------------------------------------
-    materiale: ExtractedField = Field(default_factory=ExtractedField)
-    # Selectable text material codes, e.g. "FR 7 | CPE 21 | PAP"
-    # Context: these appear as plain text at top of page — cross-check
-    # against the visual recycling icons (simboli_materiali_smaltimento).
-    codici_smaltimento_materiali: ExtractedField = Field(default_factory=ExtractedField)
-
-    # -- TEXT_IN_PDF: traceability --------------------------------------
+    # -- Column 6-7: traceability ---------------------------------------
+    # numero_di_serie_lotto: the full lot label as it appears, e.g. "LOT: 468".
+    numero_di_serie_lotto: ExtractedField = Field(default_factory=ExtractedField)
+    # lotto: the parsed lot value only (often "N/A" when no lot is shown).
     lotto: ExtractedField = Field(default_factory=ExtractedField)
-    paese_di_produzione: ExtractedField = Field(default_factory=ExtractedField)
 
-    # -- TEXT_IN_PDF: electrical / battery ------------------------------
-    capacita_batteria_e_tensione_nominale: ExtractedField = Field(default_factory=ExtractedField)
-    tempo_di_carica: ExtractedField = Field(default_factory=ExtractedField)
-    durata_utilizzo: ExtractedField = Field(default_factory=ExtractedField)
-    istruzioni_carica: ExtractedField = Field(default_factory=ExtractedField)
-
-    # -- TEXT_IN_PDF: product features ----------------------------------
-    n_vibrazioni: ExtractedField = Field(default_factory=ExtractedField)
-    livello_impermeabilita: ExtractedField = Field(default_factory=ExtractedField)
-
-    # -- TEXT_IN_PDF: regulatory text -----------------------------------
-    avvertenze: ExtractedField = Field(default_factory=ExtractedField)
-    eta_minima: ExtractedField = Field(default_factory=ExtractedField)
-    lingue_sulla_confezione: ExtractedField = Field(default_factory=ExtractedField)
-
-    # -- TEXT_IN_PDF: contact / marketing -------------------------------
-    sito_web: ExtractedField = Field(default_factory=ExtractedField)
-    assistenza_clienti: ExtractedField = Field(default_factory=ExtractedField)
-
-    # -- VISUAL: regulatory symbols -------------------------------------
-    # Interesting signal is *absence*, not presence — legally required on every pack.
+    # -- Column 8-12: VISUAL regulatory symbols -------------------------
     simbolo_ce: PresenceField = Field(default_factory=PresenceField)
     simbolo_raee: PresenceField = Field(default_factory=PresenceField)
     simbolo_ukca: PresenceField = Field(default_factory=PresenceField)
     simbolo_triman: PresenceField = Field(default_factory=PresenceField)
-    simbolo_eta_minima: PresenceField = Field(default_factory=PresenceField)  # +18 graphic
+    simbolo_smaltimento_spagnolo: PresenceField = Field(default_factory=PresenceField)
 
-    # -- VISUAL: recycling icons + QR -----------------------------------
-    # simboli_materiali_smaltimento: textual description of the visual
-    # recycling symbols (triangle + codes), used to validate TRIMAN consistency.
+    # -- Column 13: recycling icons description -------------------------
+    # Text description of the visual recycling symbols, e.g. "PAP21 / CPE07".
     simboli_materiali_smaltimento: ExtractedField = Field(default_factory=ExtractedField)
-    # qr_code_junker: presence of the Junker QR code on the pack (visual-only).
-    qr_code_junker: PresenceField = Field(default_factory=PresenceField)
 
-    # -- PRESENCE: marketing / feature markers --------------------------
-    # sexy_ideas: True if the "sexy ideas" marketing marker appears on the pack.
-    # Detectable via text substring when selectable text is available;
-    # otherwise requires VLM confirmation.
+    # -- Column 14-16: VISUAL presence markers --------------------------
+    qr_code_junker: PresenceField = Field(default_factory=PresenceField)
+    simbolo_garanzia_2_anni: PresenceField = Field(default_factory=PresenceField)
+    simbolo_libretto_informativo: PresenceField = Field(default_factory=PresenceField)
+
+    # -- Column 17-20: TEXT_IN_PDF electrical / product features --------
+    capacita_batteria_e_tensione_nominale: ExtractedField = Field(default_factory=ExtractedField)
+    # impermeabilita: e.g. "IPX6" or "Non Impermeabile".
+    impermeabilita: ExtractedField = Field(default_factory=ExtractedField)
+    # materiale: e.g. "Silicone/ABS".
+    materiale: ExtractedField = Field(default_factory=ExtractedField)
+    # modalita_di_ricarica: e.g. "Ricarica magnetica", "Ricarica minijack", or "N/A".
+    modalita_di_ricarica: ExtractedField = Field(default_factory=ExtractedField)
+
+    # -- Column 21: dimensions ------------------------------------------
+    # e.g. "17cm x Ø5.7cm"
+    dimensioni: ExtractedField = Field(default_factory=ExtractedField)
+
+    # -- Column 22-26: feature counts -----------------------------------
+    # String value or None when absent (golden uses false for absent).
+    n_vibrazioni: ExtractedField = Field(default_factory=ExtractedField)
+    n_velocita: ExtractedField = Field(default_factory=ExtractedField)
+    n_modalita_suzione: ExtractedField = Field(default_factory=ExtractedField)
+    n_modalita_tapping: ExtractedField = Field(default_factory=ExtractedField)
+    n_modalita_rotazione: ExtractedField = Field(default_factory=ExtractedField)
+
+    # -- Column 27-28: VISUAL feature presence markers ------------------
+    strap_on_compatibile: PresenceField = Field(default_factory=PresenceField)
+    funzione_riscaldante: PresenceField = Field(default_factory=PresenceField)
+
+    # -- Column 29: Amazon identifier -----------------------------------
+    codice_asin: ExtractedField = Field(default_factory=ExtractedField)
+
+    # -- Column 30-32: disposal codes (split from visual recycling band) -
+    # codice_smaltimento_scatola: first paper code, e.g. "PAP21".
+    codice_smaltimento_scatola: ExtractedField = Field(default_factory=ExtractedField)
+    # codice_smaltimento_sacchetto: first plastic code, e.g. "CPE07".
+    codice_smaltimento_sacchetto: ExtractedField = Field(default_factory=ExtractedField)
+    # codice_smaltimento_doypack: third code when present; None otherwise.
+    codice_smaltimento_doypack: ExtractedField = Field(default_factory=ExtractedField)
+
+    # -- Column 33: DERIVED triman description --------------------------
+    # Text description of matched materials, e.g. "scatola + sacchetto".
+    # None when undetermined; set to a low-confidence value on mismatch.
+    contenuto_triman_corretto: ExtractedField = Field(default_factory=ExtractedField)
+
+    # -- Column 34: marketing presence marker ---------------------------
     sexy_ideas: PresenceField = Field(default_factory=PresenceField)
 
-    # -- DERIVED --------------------------------------------------------
-    # True  = TRIMAN icon materials match codici_smaltimento_materiali text
-    # False = mismatch (human review required)
-    # None  = not computable (one or both source fields missing)
-    contenuto_triman_corretto: Optional[bool] = None
+    # -----------------------------------------------------------------------
+    # Identity field — NOT a Sheet column.
+    # Used by pipeline.py and sheets.py for idempotency checks (EAN = row key).
+    # -----------------------------------------------------------------------
+    codice_ean: str
 
     model_config = {"frozen": False}
 
@@ -144,10 +151,51 @@ class PackData(BaseModel):
             raise ValueError("codice_ean must not be empty")
         return self
 
+    # Sheet column names in declaration order (excludes codice_ean).
+    _SHEET_FIELDS: tuple[str, ...] = (
+        "nome_del_fabbricante",
+        "indirizzo_del_fabbricante",
+        "nome_dell_importatore",
+        "indirizzo_dell_importatore",
+        "tipo_o_modello",
+        "numero_di_serie_lotto",
+        "lotto",
+        "simbolo_ce",
+        "simbolo_raee",
+        "simbolo_ukca",
+        "simbolo_triman",
+        "simbolo_smaltimento_spagnolo",
+        "simboli_materiali_smaltimento",
+        "qr_code_junker",
+        "simbolo_garanzia_2_anni",
+        "simbolo_libretto_informativo",
+        "capacita_batteria_e_tensione_nominale",
+        "impermeabilita",
+        "materiale",
+        "modalita_di_ricarica",
+        "dimensioni",
+        "n_vibrazioni",
+        "n_velocita",
+        "n_modalita_suzione",
+        "n_modalita_tapping",
+        "n_modalita_rotazione",
+        "strap_on_compatibile",
+        "funzione_riscaldante",
+        "codice_asin",
+        "codice_smaltimento_scatola",
+        "codice_smaltimento_sacchetto",
+        "codice_smaltimento_doypack",
+        "contenuto_triman_corretto",
+        "sexy_ideas",
+    )
+
     def content_fields(self) -> dict:
-        """Return {field_name: value_str} for all 34 fields, flattened for Sheet writing."""
+        """Return {field_name: scalar_value} for the 34 Sheet columns only, in order.
+
+        Excluded: codice_ean (identity key, not a Sheet column).
+        """
         result: dict = {}
-        for name, field_info in self.model_fields.items():
+        for name in self._SHEET_FIELDS:
             val = getattr(self, name)
             if isinstance(val, ExtractedField):
                 result[name] = val.value
@@ -158,9 +206,12 @@ class PackData(BaseModel):
         return result
 
     def confidence_map(self) -> dict[str, float]:
-        """Return {field_name: confidence} for every field that carries confidence."""
+        """Return {field_name: confidence} for the 34 Sheet fields that carry confidence.
+
+        Excluded: codice_ean and plain-str deterministic fields (confidence = 1.0 implicitly).
+        """
         result: dict[str, float] = {}
-        for name in PackData.model_fields:
+        for name in self._SHEET_FIELDS:
             val = getattr(self, name)
             if isinstance(val, (ExtractedField, PresenceField)):
                 result[name] = val.confidence

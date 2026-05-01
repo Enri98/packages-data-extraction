@@ -80,18 +80,6 @@ def test_extract_text_fields_deterministic_fields(sample_pdf_path: Path) -> None
     assert result.nome_del_fabbricante == "MySecretCase s.r.l."
 
 
-def test_extract_text_fields_nome_prodotto(sample_pdf_path: Path) -> None:
-    result = extract_text_fields(sample_pdf_path)
-    assert result.nome_prodotto.value is not None
-    assert result.nome_prodotto.confidence > 0
-
-
-def test_sito_web_extracted_if_present(sample_pdf_path: Path) -> None:
-    result = extract_text_fields(sample_pdf_path)
-    # If a website is present in the PDF, it should be extracted.
-    if result.sito_web.value:
-        assert "." in result.sito_web.value
-
 
 def test_extract_text_fields_confidence_bounds(sample_pdf_path: Path) -> None:
     """All confidence values in the result must be in [0.0, 1.0]."""

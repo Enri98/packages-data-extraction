@@ -43,9 +43,14 @@ _VISUAL_FIELDS: frozenset[str] = frozenset(
         "simbolo_raee",
         "simbolo_ukca",
         "simbolo_triman",
-        "simbolo_eta_minima",
+        "simbolo_smaltimento_spagnolo",
         "simboli_materiali_smaltimento",
         "qr_code_junker",
+        "simbolo_garanzia_2_anni",
+        "simbolo_libretto_informativo",
+        "strap_on_compatibile",
+        "funzione_riscaldante",
+        "sexy_ideas",
     }
 )
 
@@ -56,38 +61,40 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "simbolo_raee": "RAEE/WEEE wheelie-bin symbol (PresenceField) — legally required",
     "simbolo_ukca": "UKCA mark for UK market (PresenceField)",
     "simbolo_triman": "French TRIMAN recycling logo (PresenceField)",
-    "simbolo_eta_minima": "+18 minimum age graphic (PresenceField)",
+    "simbolo_smaltimento_spagnolo": "Spanish disposal symbol (PresenceField)",
+    "simbolo_garanzia_2_anni": "2-year guarantee symbol (PresenceField)",
+    "simbolo_libretto_informativo": "Information booklet symbol (PresenceField)",
+    "strap_on_compatibile": "Strap-on compatible marker (PresenceField)",
+    "funzione_riscaldante": "Heating function marker (PresenceField)",
+    "sexy_ideas": "Sexy Ideas marketing marker present on pack (PresenceField)",
     # visual / extracted
     "simboli_materiali_smaltimento": (
-        "Description of recycling triangle symbols and their codes "
-        "(ExtractedField, e.g. 'FR 7 triangle, CPE 21 triangle, PAP 21 triangle')"
+        "Text description of recycling triangle symbols and their codes "
+        "(ExtractedField, e.g. 'PAP21 / CPE07')"
     ),
-    "qr_code_junker": "Decoded URL from the Junker QR code on the back panel (ExtractedField)",
+    "qr_code_junker": "Junker QR code present on back panel (PresenceField)",
     # text_in_pdf — descriptions kept short to save tokens
-    "nome_prodotto": "Product commercial name (ExtractedField)",
     "tipo_o_modello": "Product type or model code (ExtractedField)",
-    "colore": "Product colour (ExtractedField)",
+    "numero_di_serie_lotto": "Full lot label as printed, e.g. 'LOT: 468' (ExtractedField)",
+    "lotto": "Parsed lot value only; 'N/A' when not shown (ExtractedField)",
     "codice_asin": "Amazon ASIN code (ExtractedField)",
-    "materiale": "Main body material, e.g. silicone (ExtractedField)",
-    "codici_smaltimento_materiali": (
-        "Material disposal codes as plain text, e.g. 'FR 7 | CPE 21 | PAP' (ExtractedField)"
-    ),
-    "lotto": "Lot / batch number (ExtractedField)",
-    "paese_di_produzione": "Country of manufacture (ExtractedField)",
+    "materiale": "Main body material, e.g. 'Silicone/ABS' (ExtractedField)",
     "capacita_batteria_e_tensione_nominale": (
-        "Battery capacity and nominal voltage, e.g. '3.7V 800mAh' (ExtractedField)"
+        "Battery capacity and nominal voltage, e.g. '420mAh / 3.7V' (ExtractedField)"
     ),
-    "tempo_di_carica": "Charging time (ExtractedField)",
-    "durata_utilizzo": "Operating duration per charge (ExtractedField)",
-    "istruzioni_carica": "Charging instructions text (ExtractedField)",
-    "n_vibrazioni": "Number of vibration modes (ExtractedField)",
-    "livello_impermeabilita": "Waterproofing level, e.g. IPX7 (ExtractedField)",
-    "avvertenze": "Safety warnings text (ExtractedField)",
-    "eta_minima": "Minimum age as text, e.g. '+18' (ExtractedField)",
-    "lingue_sulla_confezione": "Languages present on packaging (ExtractedField)",
-    "sito_web": "Brand website URL (ExtractedField)",
-    "assistenza_clienti": "Customer support contact (ExtractedField)",
-    "sexy_ideas": "Marketing text block from side panel — extract verbatim (ExtractedField)",
+    "impermeabilita": "Waterproofing level, e.g. 'IPX6' or 'Non Impermeabile' (ExtractedField)",
+    "modalita_di_ricarica": (
+        "Charging method, e.g. 'Ricarica magnetica', 'Ricarica minijack', or 'N/A' (ExtractedField)"
+    ),
+    "dimensioni": "Physical dimensions, e.g. '17cm x Ø5.7cm' (ExtractedField)",
+    "n_vibrazioni": "Number of vibration modes as text, e.g. '10 vibrazioni' (ExtractedField)",
+    "n_velocita": "Number of speed modes as text (ExtractedField)",
+    "n_modalita_suzione": "Number of suction modes as text (ExtractedField)",
+    "n_modalita_tapping": "Number of tapping / movement modes as text (ExtractedField)",
+    "n_modalita_rotazione": "Number of rotation modes as text (ExtractedField)",
+    "codice_smaltimento_scatola": "Disposal code for box, e.g. 'PAP21' (ExtractedField)",
+    "codice_smaltimento_sacchetto": "Disposal code for bag, e.g. 'CPE07' (ExtractedField)",
+    "codice_smaltimento_doypack": "Disposal code for doypack when present (ExtractedField)",
 }
 
 

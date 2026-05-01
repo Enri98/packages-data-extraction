@@ -158,55 +158,91 @@ class TestMergeFieldPresence:
 
 # ---------------------------------------------------------------------------
 # _check_triman_consistency
+#
+# New contract (reads from codice_smaltimento_scatola / _sacchetto / _doypack
+# plus simboli_materiali_smaltimento; returns ExtractedField):
+#   - Match  → value = human label (e.g. "scatola + sacchetto"), confidence=0.9
+#   - Mismatch → value = None, confidence=0.2
+#   - Insufficient data → value = None, confidence=0.0 (default ExtractedField)
 # ---------------------------------------------------------------------------
 
 class TestCheckTrimanConsistency:
-    def test_match_returns_true(self) -> None:
+    def test_match_returns_label(self) -> None:
+        # scatola=FR 7, sacchetto=CPE 21 → text prefixes {FR, CPE}
+        # visual "FR CPE recycling icons" → visual prefixes {FR, CPE} → match
         pack = _minimal_pack(
-            codici_smaltimento_materiali=_extracted("FR 7 | CPE 21 | PAP", 0.9),
-            simboli_materiali_smaltimento=_extracted("FR CPE PAP recycling icons", 0.9),
+            codice_smaltimento_scatola=_extracted("FR 7", 0.9),
+            codice_smaltimento_sacchetto=_extracted("CPE 21", 0.9),
+            simboli_materiali_smaltimento=_extracted("FR CPE recycling icons", 0.9),
         )
-        assert _check_triman_consistency(pack) is True
+        result = _check_triman_consistency(pack)
+        assert isinstance(result, ExtractedField)
+        assert result.value == "scatola + sacchetto"
+        assert result.confidence == 0.9
 
-    def test_mismatch_returns_false(self) -> None:
+    def test_mismatch_returns_none_value_low_confidence(self) -> None:
+        # scatola=FR 7, sacchetto=CPE 21 → text prefixes {FR, CPE}
+        # visual "ABS PE recycling symbols" → visual prefixes {ABS, PE} → mismatch
         pack = _minimal_pack(
-            codici_smaltimento_materiali=_extracted("FR 7 | CPE 21", 0.9),
+            codice_smaltimento_scatola=_extracted("FR 7", 0.9),
+            codice_smaltimento_sacchetto=_extracted("CPE 21", 0.9),
             simboli_materiali_smaltimento=_extracted("ABS PE recycling symbols", 0.9),
         )
-        assert _check_triman_consistency(pack) is False
+        result = _check_triman_consistency(pack)
+        assert isinstance(result, ExtractedField)
+        assert result.value is None
+        assert result.confidence == 0.2
 
-    def test_missing_text_field_returns_none(self) -> None:
+    def test_missing_text_fields_returns_default(self) -> None:
+        # No disposal code fields set → insufficient data → default ExtractedField
         pack = _minimal_pack(
-            codici_smaltimento_materiali=_extracted(None, 0.0),
             simboli_materiali_smaltimento=_extracted("FR recycling icon", 0.9),
         )
-        assert _check_triman_consistency(pack) is None
+        result = _check_triman_consistency(pack)
+        assert isinstance(result, ExtractedField)
+        assert result.value is None
+        assert result.confidence == 0.0
 
-    def test_missing_visual_field_returns_none(self) -> None:
+    def test_missing_visual_field_returns_default(self) -> None:
+        # No visual field → cannot verify → default ExtractedField
         pack = _minimal_pack(
-            codici_smaltimento_materiali=_extracted("FR 7", 0.9),
-            simboli_materiali_smaltimento=_extracted(None, 0.0),
+            codice_smaltimento_scatola=_extracted("FR 7", 0.9),
         )
-        assert _check_triman_consistency(pack) is None
+        result = _check_triman_consistency(pack)
+        assert isinstance(result, ExtractedField)
+        assert result.value is None
+        assert result.confidence == 0.0
 
-    def test_both_fields_missing_returns_none(self) -> None:
+    def test_both_fields_missing_returns_default(self) -> None:
+        # Nothing set — all defaults
         pack = _minimal_pack()
-        assert _check_triman_consistency(pack) is None
+        result = _check_triman_consistency(pack)
+        assert isinstance(result, ExtractedField)
+        assert result.value is None
+        assert result.confidence == 0.0
 
     def test_numeric_suffixes_ignored(self) -> None:
-        # "FR 7" and "FR" should be treated as the same code.
+        # "FR 7" in text vs bare "FR" in visual → both normalise to prefix "FR" → match
         pack = _minimal_pack(
-            codici_smaltimento_materiali=_extracted("FR 7", 0.9),
+            codice_smaltimento_scatola=_extracted("FR 7", 0.9),
             simboli_materiali_smaltimento=_extracted("FR", 0.9),
         )
-        assert _check_triman_consistency(pack) is True
+        result = _check_triman_consistency(pack)
+        assert isinstance(result, ExtractedField)
+        assert result.value == "scatola"
+        assert result.confidence == 0.9
 
     def test_case_insensitive(self) -> None:
+        # Lower-case codes in scatola + sacchetto vs upper-case in visual → match
         pack = _minimal_pack(
-            codici_smaltimento_materiali=_extracted("fr 7 | cpe", 0.9),
+            codice_smaltimento_scatola=_extracted("fr 7", 0.9),
+            codice_smaltimento_sacchetto=_extracted("cpe", 0.9),
             simboli_materiali_smaltimento=_extracted("FR CPE", 0.9),
         )
-        assert _check_triman_consistency(pack) is True
+        result = _check_triman_consistency(pack)
+        assert isinstance(result, ExtractedField)
+        assert result.value == "scatola + sacchetto"
+        assert result.confidence == 0.9
 
 
 # ---------------------------------------------------------------------------
@@ -277,35 +313,36 @@ class TestRequiredSymbolsPresent:
 
 class TestValidate:
     def _high_confidence_pack(self) -> PackData:
-        """A parser pack with high confidence on ALL envelope fields."""
+        """A pack with high confidence on all envelope fields present in the schema."""
         return _minimal_pack(
-            nome_prodotto=_extracted("Vibrator X", 0.95),
             tipo_o_modello=_extracted("Model A", 0.9),
-            colore=_extracted("Pink", 0.9),
+            numero_di_serie_lotto=_extracted("LOT: L2024001", 0.9),
+            lotto=_extracted("L2024001", 0.9),
             codice_asin=_extracted("B0ABC12345", 0.9),
             materiale=_extracted("Silicone", 0.92),
-            codici_smaltimento_materiali=_extracted("FR 7 | CPE 21", 0.9),
-            lotto=_extracted("L2024001", 0.9),
-            paese_di_produzione=_extracted("China", 0.9),
+            impermeabilita=_extracted("IPX6", 0.9),
+            modalita_di_ricarica=_extracted("Ricarica magnetica", 0.9),
+            dimensioni=_extracted("17cm x Ø5.7cm", 0.9),
             capacita_batteria_e_tensione_nominale=_extracted("3.7V 800mAh", 0.9),
-            tempo_di_carica=_extracted("60 min", 0.9),
-            durata_utilizzo=_extracted("90 min", 0.9),
-            istruzioni_carica=_extracted("Charge before use", 0.9),
             n_vibrazioni=_extracted("10", 0.9),
-            livello_impermeabilita=_extracted("IPX7", 0.9),
-            avvertenze=_extracted("Keep away from children", 0.9),
-            eta_minima=_extracted("+18", 0.9),
-            lingue_sulla_confezione=_extracted("IT, EN, DE", 0.9),
-            sito_web=_extracted("www.mysecretcase.com", 0.9),
-            assistenza_clienti=_extracted("support@mysecretcase.com", 0.9),
-            sexy_ideas=_extracted("Exciting experiences await", 0.9),
+            n_velocita=_extracted("3", 0.9),
+            n_modalita_suzione=_extracted("0", 0.9),
+            n_modalita_tapping=_extracted("0", 0.9),
+            n_modalita_rotazione=_extracted("0", 0.9),
+            codice_smaltimento_scatola=_extracted("FR 7", 0.9),
+            codice_smaltimento_sacchetto=_extracted("CPE 21", 0.9),
+            simboli_materiali_smaltimento=_extracted("FR CPE icons", 0.9),
             simbolo_ce=_presence(True, 0.95),
             simbolo_raee=_presence(True, 0.9),
             simbolo_ukca=_presence(True, 0.9),
             simbolo_triman=_presence(True, 0.88),
-            simbolo_eta_minima=_presence(True, 0.9),
-            simboli_materiali_smaltimento=_extracted("FR CPE icons", 0.9),
-            qr_code_junker=_extracted("https://junker.app/scan/123", 0.9),
+            simbolo_smaltimento_spagnolo=_presence(False, 0.9),
+            qr_code_junker=_presence(True, 0.9),
+            simbolo_garanzia_2_anni=_presence(True, 0.9),
+            simbolo_libretto_informativo=_presence(True, 0.9),
+            strap_on_compatibile=_presence(False, 0.9),
+            funzione_riscaldante=_presence(False, 0.9),
+            sexy_ideas=_presence(True, 0.9),
         )
 
     def test_needs_review_false_when_all_confident(self) -> None:
@@ -333,13 +370,13 @@ class TestValidate:
 
     def test_needs_review_true_when_required_symbol_absent(self) -> None:
         parser = _minimal_pack(
-            nome_prodotto=_extracted("Vibrator X", 0.98),
+            tipo_o_modello=_extracted("Vibrator X", 0.98),
             simbolo_ce=_presence(False, 0.95),   # CE explicitly absent
             simbolo_raee=_presence(True, 0.95),
             simbolo_triman=_presence(True, 0.95),
         )
         vlm = _minimal_pack(
-            nome_prodotto=_extracted("Vibrator X", 0.98),
+            tipo_o_modello=_extracted("Vibrator X", 0.98),
             simbolo_ce=_presence(False, 0.95),
             simbolo_raee=_presence(True, 0.95),
             simbolo_triman=_presence(True, 0.95),
@@ -365,40 +402,52 @@ class TestValidate:
         assert result.pack.dimensioni.value == "17cm x Ø5.7cm"
 
     def test_triman_derived_field_set_correctly(self) -> None:
+        # scatola=FR 7, sacchetto=CPE 21 and visual "FR CPE icons" → match
+        # Expected label: "scatola + sacchetto"
         parser = _minimal_pack(
-            codici_smaltimento_materiali=_extracted("FR 7 | CPE 21", 0.9),
+            codice_smaltimento_scatola=_extracted("FR 7", 0.9),
+            codice_smaltimento_sacchetto=_extracted("CPE 21", 0.9),
             simboli_materiali_smaltimento=_extracted("FR CPE icons", 0.9),
             simbolo_ce=_presence(True, 0.9),
             simbolo_raee=_presence(True, 0.9),
             simbolo_triman=_presence(True, 0.9),
         )
         vlm = _minimal_pack(
-            codici_smaltimento_materiali=_extracted("FR 7 | CPE 21", 0.9),
+            codice_smaltimento_scatola=_extracted("FR 7", 0.9),
+            codice_smaltimento_sacchetto=_extracted("CPE 21", 0.9),
             simboli_materiali_smaltimento=_extracted("FR CPE icons", 0.9),
             simbolo_ce=_presence(True, 0.9),
             simbolo_raee=_presence(True, 0.9),
             simbolo_triman=_presence(True, 0.9),
         )
         result = validate(parser, vlm)
-        assert result.pack.contenuto_triman_corretto is True
+        assert isinstance(result.pack.contenuto_triman_corretto, ExtractedField)
+        assert result.pack.contenuto_triman_corretto.value == "scatola + sacchetto"
+        assert result.pack.contenuto_triman_corretto.confidence == 0.9
 
-    def test_triman_mismatch_sets_false(self) -> None:
+    def test_triman_mismatch_sets_none_value(self) -> None:
+        # scatola=FR 7, sacchetto=CPE 21 vs visual "ABS PE icons" → mismatch
+        # Expected: value=None, confidence=0.2
         parser = _minimal_pack(
-            codici_smaltimento_materiali=_extracted("FR 7 | CPE 21", 0.9),
+            codice_smaltimento_scatola=_extracted("FR 7", 0.9),
+            codice_smaltimento_sacchetto=_extracted("CPE 21", 0.9),
             simboli_materiali_smaltimento=_extracted("ABS PE icons", 0.9),
             simbolo_ce=_presence(True, 0.9),
             simbolo_raee=_presence(True, 0.9),
             simbolo_triman=_presence(True, 0.9),
         )
         vlm = _minimal_pack(
-            codici_smaltimento_materiali=_extracted("FR 7 | CPE 21", 0.9),
+            codice_smaltimento_scatola=_extracted("FR 7", 0.9),
+            codice_smaltimento_sacchetto=_extracted("CPE 21", 0.9),
             simboli_materiali_smaltimento=_extracted("ABS PE icons", 0.9),
             simbolo_ce=_presence(True, 0.9),
             simbolo_raee=_presence(True, 0.9),
             simbolo_triman=_presence(True, 0.9),
         )
         result = validate(parser, vlm)
-        assert result.pack.contenuto_triman_corretto is False
+        assert isinstance(result.pack.contenuto_triman_corretto, ExtractedField)
+        assert result.pack.contenuto_triman_corretto.value is None
+        assert result.pack.contenuto_triman_corretto.confidence == 0.2
 
     def test_review_reasons_populated_for_each_flag(self) -> None:
         parser = _minimal_pack(
@@ -415,17 +464,18 @@ class TestValidate:
         assert any("simbolo_ce" in r for r in result.review_reasons)
 
     def test_flagged_fields_contain_low_confidence_fields(self) -> None:
+        # tipo_o_modello replaces the removed nome_prodotto field; same role.
         parser = _minimal_pack(
-            nome_prodotto=_extracted("Product", 0.2),   # low confidence
+            tipo_o_modello=_extracted("Product", 0.2),   # low confidence
             simbolo_ce=_presence(True, 0.9),
             simbolo_raee=_presence(True, 0.9),
             simbolo_triman=_presence(True, 0.9),
         )
         vlm = _minimal_pack(
-            nome_prodotto=_extracted("Product", 0.2),
+            tipo_o_modello=_extracted("Product", 0.2),
             simbolo_ce=_presence(True, 0.9),
             simbolo_raee=_presence(True, 0.9),
             simbolo_triman=_presence(True, 0.9),
         )
         result = validate(parser, vlm)
-        assert "nome_prodotto" in result.flagged_fields
+        assert "tipo_o_modello" in result.flagged_fields

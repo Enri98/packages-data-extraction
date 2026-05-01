@@ -9,7 +9,7 @@ Responsibilities:
   - Required regulatory symbols (CE, RAEE, TRIMAN) — flag if absent.
   - TRIMAN material consistency — compute contenuto_triman_corretto by
     comparing simboli_materiali_smaltimento (visual) against
-    codici_smaltimento_materiali (text).
+    codice_smaltimento_scatola / _sacchetto / _doypack (text).
 - Compute a final per-field confidence and a scalar overall_confidence.
 - Mark packs below REVIEW_THRESHOLD for human review with a structured
   list of flagged fields and reasons.
@@ -60,7 +60,7 @@ def validate(parser_output: PackData, vlm_output: PackData) -> ValidationResult:
         if isinstance(parser_val, (ExtractedField, PresenceField)):
             merged_data[field_name] = _merge_field(parser_val, vlm_val)
         else:
-            # Deterministic (str, bool, None): parser is authoritative.
+            # Deterministic (str): parser is authoritative.
             merged_data[field_name] = parser_val
 
     merged_pack = PackData(**merged_data)
@@ -71,10 +71,10 @@ def validate(parser_output: PackData, vlm_output: PackData) -> ValidationResult:
     # Business rule: required regulatory symbols.
     absent_symbols = _required_symbols_present(merged_pack)
 
-    # Aggregate confidence from all envelope fields.
+    # Aggregate confidence from all envelope fields (Sheet fields only).
     confidences: list[float] = [
         val.confidence
-        for field_name in PackData.model_fields
+        for field_name in merged_pack._SHEET_FIELDS
         for val in [getattr(merged_pack, field_name)]
         if isinstance(val, (ExtractedField, PresenceField))
     ]
@@ -85,10 +85,10 @@ def validate(parser_output: PackData, vlm_output: PackData) -> ValidationResult:
     if absent_symbols:
         overall_confidence = min(overall_confidence, 0.5)
 
-    # Collect low-confidence fields (excluding derived/deterministic plain fields).
+    # Collect low-confidence fields (excluding plain deterministic str fields).
     low_confidence_fields: list[str] = [
         field_name
-        for field_name in PackData.model_fields
+        for field_name in merged_pack._SHEET_FIELDS
         for val in [getattr(merged_pack, field_name)]
         if isinstance(val, (ExtractedField, PresenceField)) and val.confidence < 0.5
     ]
@@ -178,26 +178,67 @@ def _merge_field(
     return winner.model_copy()
 
 
-def _check_triman_consistency(pack: PackData) -> bool | None:
+def _collect_code_prefixes(raw: str | None) -> set[str]:
+    """Extract uppercase letter-only code prefixes from a raw code string."""
+    if raw is None:
+        return set()
+    return {m.group(1) for m in _MATERIAL_CODE_RE.finditer(raw.upper())}
+
+
+def _check_triman_consistency(pack: PackData) -> ExtractedField:
     """
-    Compare material codes from text extraction against VLM-described
-    recycling icons. Returns True (match), False (mismatch), or None
-    (insufficient data to decide).
+    Compare material codes from per-field text extraction against
+    VLM-described recycling icons.
+
+    Returns an ExtractedField where:
+    - value = human-readable description of matched materials
+      (e.g. "scatola + sacchetto", "scatola", "scatola + sacchetto + doypack")
+      when the text codes and visual codes agree.
+    - value = None with confidence=0.2 when codes disagree.
+    - value = None with confidence=0.0 (default) when data is insufficient.
     """
-    text_raw = pack.codici_smaltimento_materiali.value
     visual_raw = pack.simboli_materiali_smaltimento.value
+    if visual_raw is None:
+        # Cannot verify without visual data.
+        return ExtractedField()
 
-    if text_raw is None or visual_raw is None:
-        return None
+    # Collect codes present in individual disposal fields.
+    scatola_val = pack.codice_smaltimento_scatola.value
+    sacchetto_val = pack.codice_smaltimento_sacchetto.value
+    doypack_val = pack.codice_smaltimento_doypack.value
 
-    def _extract_codes(text: str) -> set[str]:
-        # Uppercase and strip, then capture only alpha-only tokens as code prefixes.
-        return {m.group(1) for m in _MATERIAL_CODE_RE.finditer(text.upper())}
+    text_codes: set[str] = set()
+    label_parts: list[str] = []
 
-    text_codes = _extract_codes(text_raw)
-    visual_codes = _extract_codes(visual_raw)
+    if scatola_val is not None:
+        text_codes |= _collect_code_prefixes(scatola_val)
+        label_parts.append("scatola")
+    if sacchetto_val is not None:
+        text_codes |= _collect_code_prefixes(sacchetto_val)
+        label_parts.append("sacchetto")
+    if doypack_val is not None:
+        text_codes |= _collect_code_prefixes(doypack_val)
+        label_parts.append("doypack")
 
-    return text_codes == visual_codes
+    if not text_codes:
+        # No text disposal codes found — cannot verify.
+        return ExtractedField()
+
+    visual_codes = _collect_code_prefixes(visual_raw)
+
+    if text_codes == visual_codes:
+        label = " + ".join(label_parts) if label_parts else "scatola"
+        return ExtractedField(value=label, confidence=0.9, evidence="codes match visual icons")
+
+    # Mismatch — flag for review with a low confidence.
+    return ExtractedField(
+        value=None,
+        confidence=0.2,
+        evidence=(
+            f"Code mismatch: text prefixes={sorted(text_codes)} "
+            f"vs visual prefixes={sorted(visual_codes)}"
+        ),
+    )
 
 
 def _required_symbols_present(pack: PackData) -> list[str]:

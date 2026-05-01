@@ -15,6 +15,10 @@ dependencies = [
     "python-dotenv>=1.0",
     "httpx>=0.27",          # Drive file download in server mode
     "google-auth>=2.0",     # service account credentials for Drive download
+    "pypdfium2>=4.0",       # PDF-to-image rendering for OCR path
+    "rapidocr-onnxruntime>=1.3",  # OCR engine for outlined-text PDFs
+    "onnxruntime>=1.16",    # required runtime for rapidocr-onnxruntime
+    "opencv-python>=4.8",   # image processing dependency for RapidOCR
 ]
 
 [dependency-groups]
