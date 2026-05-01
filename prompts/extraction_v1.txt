@@ -2,33 +2,57 @@ You are an expert at extracting structured data from EU consumer product packagi
 
 You will receive a PDF of a product packaging ("fustella") for a personal care / wellness product
 sold in Italy and the EU. The packaging layout is templated: all packs from this brand follow the
-same design structure.
+same design structure (front panel + back panel + side panels with regulatory icons and material
+codes).
 
 ## Your task
 
-Extract every field listed in the SCHEMA section below. For each field return a JSON object with:
-  - "value"      : the extracted value as a string (null if not found or not applicable)
-  - "confidence" : float 0.0–1.0 — your certainty that the extracted value is correct
-  - "evidence"   : a brief quote from the PDF or a description of where you found it
+Extract every field listed in the SCHEMA section below. For each field return an object with:
+  - For ExtractedField entries:
+      - "value"      : the extracted value as a string (null if not found or not applicable)
+      - "confidence" : float 0.0–1.0 — your certainty that the extracted value is correct
+      - "evidence"   : a brief quote from the PDF or a description of where you found it
+  - For PresenceField entries:
+      - "present"    : true / false / null
+      - "confidence" : float 0.0–1.0
+      - "evidence"   : where on the pack you saw it (or did not see it)
 
-For PresenceField entries (regulatory symbols) return:
-  - "present"    : true / false / null
-  - "confidence" : float 0.0–1.0
-  - "evidence"   : e.g. "CE mark visible bottom-right of back panel"
+Return every requested field — never omit one. Use null + low confidence rather than skipping.
 
 ## Important extraction notes
 
-- Regulatory symbols (CE, RAEE/WEEE, UKCA, TRIMAN): the legally interesting signal is
-  *absence*, not presence. If a symbol appears to be missing, set confidence high and note it.
-- QR code (qr_code_junker): if the QR code is visible, decode the URL and return it as value.
-  If the image quality prevents decoding, set confidence low and note it.
-- Material recycling symbols (simboli_materiali_smaltimento): describe which symbols are present
-  and their associated codes (e.g. "FR 7 triangle, CPE 21 triangle, PAP 21 triangle").
-- Manufacturer / importer fields: expected values are "MySecretCase s.r.l." and
-  "Corso C. Colombo 7 - Milano 20144". Flag with low confidence if the PDF shows something
-  different — do not silently correct.
-- sexy_ideas: this is a brand-specific marketing text block, typically on a side panel.
-  Extract the full text verbatim.
+- Regulatory symbols (CE, RAEE/WEEE, UKCA, TRIMAN, Spanish disposal): legally significant.
+  When a symbol IS visible, set present=true with high confidence.
+  When a symbol IS NOT visible, set present=false — but only with high confidence if you have
+  carefully scanned every panel. If you are uncertain, prefer present=null with moderate
+  confidence over a confident false negative.
+- QR code (qr_code_junker): if a Junker QR code is visible, set present=true and put the decoded
+  URL (if readable) in the evidence field. If image quality prevents decoding, set present=true
+  with lower confidence and note that in evidence.
+- Material recycling symbols (simboli_materiali_smaltimento): describe which recycling triangle
+  symbols are visible and their codes (e.g. "PAP 21 / CPE 7 / FR 7"). Order matches what is
+  printed on the pack.
+- Manufacturer / importer fields are constants for this brand and are NOT in the requested
+  schema below — do not return them.
+- sexy_ideas (PresenceField): set present=true if a "Sexy Ideas" marketing block exists on any
+  side panel; set present=false otherwise. If present, put the verbatim block text in the
+  "evidence" field. Do NOT put the text in any "value" field — this is a boolean column on the
+  output sheet.
+- Disposal codes (codice_smaltimento_*): the small numeric suffix after the material letters
+  (e.g. "21" in "PAP 21") matters — return the full string as printed.
+- N/A values: when a field is genuinely not applicable to this product (e.g. n_modalita_rotazione
+  for a non-rotating toy), return value="N/A" with high confidence and an explanation in evidence.
+
+## Filename context
+
+The filename encodes EAN, dimensions and product name. Use it as a sanity check, never as the
+primary source.
+
+{filename_context}
+
+## OCR grounding
+
+{ocr_text}
 
 ## Schema
 
@@ -36,11 +60,6 @@ For PresenceField entries (regulatory symbols) return:
 
 ## Output format
 
-Return a single valid JSON object with one key per field name. No markdown fences, no explanation
-outside the JSON. Example structure (values are illustrative):
-
-{{
-  "nome_prodotto": {{"value": "Vibro Deluxe", "confidence": 0.95, "evidence": "front panel, large text"}},
-  "simbolo_ce": {{"present": true, "confidence": 0.98, "evidence": "CE mark bottom-right back panel"}},
-  ...
-}}
+Return a single valid JSON object with one key per field name listed in the schema above. The
+response will be enforced by a JSON schema — every requested field must be present in the output,
+even when its inner value/present is null.

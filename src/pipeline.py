@@ -32,6 +32,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from src.ocr import extract_ocr_text
 from src.parsing import extract_text_fields, parse_filename
 from src.schemas.pack import PackData
 from src.sheets import write_pack, write_run_metadata
@@ -65,7 +66,12 @@ def run_single(pdf_path: Path) -> PackData:
         logger.info("Parsing done | ean={}", ean)
 
         try:
-            vlm_output = extract_visual_fields(pdf_path, parser_output)
+            # OCR is path-cached in src.ocr; if parsing already triggered it
+            # this is a free lookup, otherwise it pays the OCR cost once.
+            ocr_text = extract_ocr_text(pdf_path)
+            vlm_output = extract_visual_fields(
+                pdf_path, parser_output, ocr_text=ocr_text
+            )
         except Exception as exc:
             raise PipelineError(pdf_path.name, "vlm", exc) from exc
         logger.info("VLM done | ean={}", ean)
