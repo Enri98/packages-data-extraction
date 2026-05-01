@@ -2,6 +2,7 @@
 
 import json
 import re
+import unicodedata
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -65,11 +66,46 @@ def run_deterministic(pdf_path: Path) -> PackData:
     return result.pack
 
 
+# Recycling/disposal code pattern: letters then optional whitespace then digits,
+# e.g. "PAP 21", "CPE 7", "FR21". Used to canonicalise to "PAP21", "CPE07".
+_DISPOSAL_CODE_RE = re.compile(r"\b([a-z]{2,4})\s*0*(\d{1,3})\b")
+
+
 def normalize(s: Any) -> Any:
-    """Strip and collapse internal whitespace for strings; return other types as-is."""
-    if isinstance(s, str):
-        return re.sub(r"\s+", " ", s).strip()
-    return s
+    """
+    Canonicalise a string for semantic comparison.
+
+    - case-insensitive
+    - whitespace collapsed and stripped
+    - whitespace around '/' removed
+    - disposal codes normalised: 'PAP 21' / 'pap21' / 'PAP021' all → 'pap21';
+      'CPE 7' / 'cpe07' / 'CPE 07' all → 'cpe07' (single digit zero-padded)
+
+    Returns non-strings unchanged so booleans / None pass through.
+    """
+    if not isinstance(s, str):
+        return s
+
+    out = s.lower()
+    # Strip accents: 'à' → 'a', 'ò' → 'o', etc. — Italian text from PDFs vs
+    # OCR/VLM frequently disagrees on accent rendering.
+    out = "".join(
+        c for c in unicodedata.normalize("NFKD", out) if not unicodedata.combining(c)
+    )
+    out = re.sub(r"\s+", " ", out).strip()
+    out = re.sub(r"\s*/\s*", "/", out)
+
+    # Collapse whitespace at digit↔letter boundaries: "420 mah" / "420mah" /
+    # "3.7 v" / "3.7v" / "25 cm" / "25cm" all canonicalise to the no-space form.
+    out = re.sub(r"(\d)\s+([a-zà-ÿ])", r"\1\2", out)
+    out = re.sub(r"([a-zà-ÿ])\s+(\d)", r"\1\2", out)
+
+    def _canon_code(m: re.Match[str]) -> str:
+        letters, digits = m.group(1), m.group(2)
+        return f"{letters}{int(digits):02d}"
+
+    out = _DISPOSAL_CODE_RE.sub(_canon_code, out)
+    return out
 
 
 def extract_actual(pack: PackData, field_name: str) -> Any:

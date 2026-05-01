@@ -81,3 +81,4 @@ out/
 tmp/
 .gitnexus
 scripts/ocr_renders/
+eval_vlm_cache/

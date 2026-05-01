@@ -51,14 +51,60 @@ MODES: tuple[tuple[str, bool, bool], ...] = (
     ("vlm-image+ocr",   True,  True),
 )
 
+_CACHE_DIR = _REPO_ROOT / "eval_vlm_cache"
+
+
+# ---------------------------------------------------------------------------
+# VLM response cache — JSON on disk, keyed by (pdf_stem, mode_label).
+# Lets us re-score (normalizer changes, golden changes) without re-calling.
+# ---------------------------------------------------------------------------
+
+
+def _cache_path(pdf_path: Path, mode_label: str) -> Path:
+    return _CACHE_DIR / f"{pdf_path.stem}__{mode_label}.json"
+
+
+def _load_cached_vlm(pdf_path: Path, mode_label: str) -> dict | None:
+    path = _cache_path(pdf_path, mode_label)
+    if not path.exists():
+        return None
+    with path.open(encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _save_cached_vlm(pdf_path: Path, mode_label: str, response: dict) -> None:
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _cache_path(pdf_path, mode_label)
+    with path.open("w", encoding="utf-8") as fh:
+        json.dump(response, fh, indent=2, ensure_ascii=False)
+
+
+def _count_cache_misses(pdfs: list[tuple[Path, Path]], use_cache: bool) -> int:
+    """How many real VLM calls a run would make right now."""
+    if not use_cache:
+        return len(pdfs) * sum(1 for _, run_vlm, _ in MODES if run_vlm)
+    misses = 0
+    for pdf_path, _ in pdfs:
+        for label, run_vlm, _ocr in MODES:
+            if run_vlm and _load_cached_vlm(pdf_path, label) is None:
+                misses += 1
+    return misses
+
 
 # ---------------------------------------------------------------------------
 # Mode runner
 # ---------------------------------------------------------------------------
 
 
-def run_mode(pdf_path: Path, *, run_vlm: bool, ocr_grounding: bool) -> PackData:
-    """Run one extraction mode and return the final merged PackData."""
+def run_mode(
+    pdf_path: Path,
+    *,
+    label: str,
+    run_vlm: bool,
+    ocr_grounding: bool,
+    use_cache: bool,
+) -> tuple[PackData, bool]:
+    """Run one extraction mode and return (merged PackData, cache_hit)."""
     parser_output = extract_text_fields(pdf_path)
 
     if not run_vlm:
@@ -67,11 +113,24 @@ def run_mode(pdf_path: Path, *, run_vlm: bool, ocr_grounding: bool) -> PackData:
             codice_ean=parser_output.codice_ean,
             dimensioni=parser_output.dimensioni,
         )
-        return validate(parser_output, vlm_stub).pack
+        return validate(parser_output, vlm_stub).pack, False
+
+    cached: dict | None = _load_cached_vlm(pdf_path, label) if use_cache else None
+    if cached is not None:
+        vlm_output = PackData.model_validate(cached["vlm_pack"])
+        return validate(parser_output, vlm_output).pack, True
 
     ocr_text = extract_ocr_text(pdf_path) if ocr_grounding else None
     vlm_output = extract_visual_fields(pdf_path, parser_output, ocr_text=ocr_text)
-    return validate(parser_output, vlm_output).pack
+    _save_cached_vlm(
+        pdf_path,
+        label,
+        {
+            "vlm_pack": vlm_output.model_dump(mode="json"),
+            "ocr_text_used": bool(ocr_text),
+        },
+    )
+    return validate(parser_output, vlm_output).pack, False
 
 
 # ---------------------------------------------------------------------------
@@ -199,13 +258,11 @@ def render_comparison(per_pdf: dict[str, dict[str, dict[str, dict]]]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _confirm_cost(n_pdfs: int) -> bool:
-    n_calls = n_pdfs * sum(1 for _, run_vlm, _ in MODES if run_vlm)
+def _confirm_cost(n_calls: int) -> bool:
+    if n_calls == 0:
+        return True
     est = n_calls * _EST_COST_PER_CALL_USD
-    print(
-        f"\nAbout to make {n_calls} real Gemini calls "
-        f"({n_pdfs} PDFs × 2 VLM modes). Estimated cost: ~${est:.2f}."
-    )
+    print(f"\nAbout to make {n_calls} real Gemini calls. Estimated cost: ~${est:.2f}.")
     if not sys.stdin.isatty():
         print(
             "Refusing to proceed: stdin is not a TTY, cannot confirm interactively. "
@@ -218,15 +275,7 @@ def _confirm_cost(n_pdfs: int) -> bool:
 
 
 def main() -> int:
-    if os.environ.get("GEMINI_LIVE") != "1":
-        print(
-            "ERROR: GEMINI_LIVE != '1'. Refusing to run.\n"
-            "Set GEMINI_LIVE=1 in the environment to authorize real API calls."
-        )
-        return 2
-    if not os.environ.get("GEMINI_API_KEY"):
-        print("ERROR: GEMINI_API_KEY is not set.")
-        return 2
+    use_cache = "--no-cache" not in sys.argv
 
     pdfs: list[tuple[Path, Path]] = []
     missing: list[str] = []
@@ -246,9 +295,25 @@ def main() -> int:
         print("[ERROR] No sample PDFs found.")
         return 1
 
-    if not _confirm_cost(len(pdfs)):
-        print("Aborted.")
-        return 0
+    n_misses = _count_cache_misses(pdfs, use_cache)
+    print(
+        f"Cache: {'enabled' if use_cache else 'DISABLED'} | "
+        f"{n_misses} real Gemini call(s) needed | dir={_CACHE_DIR}"
+    )
+
+    if n_misses > 0:
+        if os.environ.get("GEMINI_LIVE") != "1":
+            print(
+                "ERROR: real Gemini calls required but GEMINI_LIVE != '1'.\n"
+                "Set GEMINI_LIVE=1 to authorize, or re-run with full cache."
+            )
+            return 2
+        if not os.environ.get("GEMINI_API_KEY"):
+            print("ERROR: GEMINI_API_KEY is not set.")
+            return 2
+        if not _confirm_cost(n_misses):
+            print("Aborted.")
+            return 0
 
     per_pdf: dict[str, dict[str, dict[str, dict]]] = {}
 
@@ -259,14 +324,19 @@ def main() -> int:
         for label, run_vlm, ocr_grounding in MODES:
             t0 = time.perf_counter()
             try:
-                pack = run_mode(pdf_path, run_vlm=run_vlm, ocr_grounding=ocr_grounding)
+                pack, cache_hit = run_mode(
+                    pdf_path,
+                    label=label,
+                    run_vlm=run_vlm,
+                    ocr_grounding=ocr_grounding,
+                    use_cache=use_cache,
+                )
             except VLMNotAuthorizedError as exc:
                 print(f"  [{label}] aborted: {exc}")
                 return 2
             except Exception as exc:  # noqa: BLE001
                 logger.exception("mode {} failed for {}", label, pdf_path.name)
                 print(f"  [{label}] FAILED: {exc}")
-                # Record an empty fields dict so the report is still rendered.
                 per_pdf[pdf_path.name][label] = {}
                 continue
 
@@ -274,10 +344,11 @@ def main() -> int:
             fields = diff_against_golden(pack, golden_path)
             per_pdf[pdf_path.name][label] = fields
             s = summarize(fields)
+            tag = "(cache)" if cache_hit else "(live)" if run_vlm else ""
             print(
                 f"  [{label}] acc={s['accuracy']:.1%} "
                 f"(C{s['correct']}/W{s['wrong']}/M{s['missing']}/U{s['unexpected']}) "
-                f"in {elapsed:.1f}s"
+                f"in {elapsed:.1f}s {tag}"
             )
 
     render_comparison(per_pdf)
