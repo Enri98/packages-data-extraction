@@ -1,0 +1,81 @@
+# Claude Code context
+.claude/
+CLAUDE.md
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.json
+!package.json
+!pyproject.toml.example
+credentials/
+secrets/
+*-credentials.json
+*-key.json
+service-account*.json
+
+# Real data (never commit)
+data/
+*.pdf
+*.xlsx
+*.gsheet
+
+# Real PDFs (only sanitized samples in samples/ are committed)
+data/*.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# uv
+.python-version
+# uv.lock is intentionally committed — pins exact dep versions for reproducible builds
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Notebooks output
+notebooks/*.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
+
+# Local outputs
+output/
+out/
+tmp/
