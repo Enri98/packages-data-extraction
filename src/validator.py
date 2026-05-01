@@ -20,12 +20,20 @@ Not responsible for:
 - Calling the VLM or text parser (delegated to their modules).
 """
 
+import re
 from dataclasses import dataclass
 
-from src.schemas.pack import PackData
+from src.schemas.pack import ExtractedField, PackData, PresenceField
 
 
 REVIEW_THRESHOLD = 0.75  # packs below this overall confidence go to review_queue
+
+# Symbols that must appear on every pack by EU regulation.
+_REQUIRED_SYMBOL_FIELDS: list[str] = ["simbolo_ce", "simbolo_raee", "simbolo_triman"]
+
+# Regex to extract material code prefixes (letters only, ignore numeric suffixes).
+# Examples: "FR 7" → "FR", "CPE 21" → "CPE", "PAP" → "PAP"
+_MATERIAL_CODE_RE = re.compile(r"\b([A-Z]{1,4})\b")
 
 
 @dataclass
@@ -42,16 +50,132 @@ def validate(parser_output: PackData, vlm_output: PackData) -> ValidationResult:
     Merge parser and VLM outputs, apply business rules, return a
     validated PackData with a review flag.
     """
-    raise NotImplementedError("Session 4 deliverable")
+    # Build merged pack starting from parser deterministic fields.
+    merged_data: dict = {}
+
+    for field_name in PackData.model_fields:
+        parser_val = getattr(parser_output, field_name)
+        vlm_val = getattr(vlm_output, field_name)
+
+        if isinstance(parser_val, (ExtractedField, PresenceField)):
+            merged_data[field_name] = _merge_field(parser_val, vlm_val)
+        else:
+            # Deterministic (str, bool, None): parser is authoritative.
+            merged_data[field_name] = parser_val
+
+    merged_pack = PackData(**merged_data)
+
+    # Derived field: TRIMAN consistency requires merged visual + text data.
+    merged_pack.contenuto_triman_corretto = _check_triman_consistency(merged_pack)
+
+    # Business rule: required regulatory symbols.
+    absent_symbols = _required_symbols_present(merged_pack)
+
+    # Aggregate confidence from all envelope fields.
+    confidences: list[float] = [
+        val.confidence
+        for field_name in PackData.model_fields
+        for val in [getattr(merged_pack, field_name)]
+        if isinstance(val, (ExtractedField, PresenceField))
+    ]
+
+    overall_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+
+    # Absent required symbols cap the overall score — the pack cannot be trusted.
+    if absent_symbols:
+        overall_confidence = min(overall_confidence, 0.5)
+
+    # Collect low-confidence fields (excluding derived/deterministic plain fields).
+    low_confidence_fields: list[str] = [
+        field_name
+        for field_name in PackData.model_fields
+        for val in [getattr(merged_pack, field_name)]
+        if isinstance(val, (ExtractedField, PresenceField)) and val.confidence < 0.5
+    ]
+
+    flagged_fields: list[str] = list(dict.fromkeys(low_confidence_fields + absent_symbols))
+
+    review_reasons: list[str] = []
+    for field_name in low_confidence_fields:
+        val = getattr(merged_pack, field_name)
+        review_reasons.append(
+            f"Low confidence ({val.confidence:.2f}) on field '{field_name}'"
+        )
+    for field_name in absent_symbols:
+        review_reasons.append(
+            f"Required symbol absent or uncertain: '{field_name}'"
+        )
+
+    needs_review = overall_confidence < REVIEW_THRESHOLD or bool(absent_symbols)
+
+    return ValidationResult(
+        pack=merged_pack,
+        overall_confidence=overall_confidence,
+        flagged_fields=flagged_fields,
+        needs_review=needs_review,
+        review_reasons=review_reasons,
+    )
 
 
-def _merge_field(parser_value, vlm_value):
+def _merge_field(
+    parser_value: ExtractedField | PresenceField | None,
+    vlm_value: ExtractedField | PresenceField | None,
+) -> ExtractedField | PresenceField:
     """
     Choose between two ExtractedField or PresenceField instances.
     Higher confidence wins; ties go to the parser (deterministic preferred).
     If values disagree and both confidence >= 0.5, record a conflict note.
     """
-    raise NotImplementedError("Session 4 deliverable")
+    # Determine whether either side is effectively empty.
+    def _has_data(field: ExtractedField | PresenceField | None) -> bool:
+        if field is None:
+            return False
+        if isinstance(field, ExtractedField):
+            return field.value is not None
+        return field.present is not None  # PresenceField
+
+    parser_has = _has_data(parser_value)
+    vlm_has = _has_data(vlm_value)
+
+    if parser_has and not vlm_has:
+        return parser_value.model_copy()
+    if vlm_has and not parser_has:
+        return vlm_value.model_copy()
+    if not parser_has and not vlm_has:
+        # Both empty — return a fresh default of the correct type.
+        if isinstance(parser_value, PresenceField) or isinstance(vlm_value, PresenceField):
+            return PresenceField()
+        return ExtractedField()
+
+    # Both have data — pick the higher-confidence source; ties go to parser.
+    parser_conf = parser_value.confidence
+    vlm_conf = vlm_value.confidence
+
+    winner, loser = (
+        (parser_value, vlm_value) if parser_conf >= vlm_conf else (vlm_value, parser_value)
+    )
+
+    # Extract the actual value from each source for comparison.
+    def _get_value(field: ExtractedField | PresenceField) -> str | bool | None:
+        if isinstance(field, ExtractedField):
+            return field.value
+        return field.present
+
+    winner_val = _get_value(winner)
+    loser_val = _get_value(loser)
+    values_agree = winner_val == loser_val
+
+    if not values_agree and parser_conf >= 0.7 and vlm_conf >= 0.7:
+        # Conflict: both confident but disagree — penalise and annotate.
+        new_confidence = max(0.0, winner.confidence - 0.1)
+        conflict_note = f" [CONFLICT: other source said: {loser_val}]"
+        new_evidence = (winner.evidence or "") + conflict_note
+
+        return winner.model_copy(
+            update={"confidence": new_confidence, "evidence": new_evidence}
+        )
+
+    return winner.model_copy()
 
 
 def _check_triman_consistency(pack: PackData) -> bool | None:
@@ -60,7 +184,20 @@ def _check_triman_consistency(pack: PackData) -> bool | None:
     recycling icons. Returns True (match), False (mismatch), or None
     (insufficient data to decide).
     """
-    raise NotImplementedError("Session 4 deliverable")
+    text_raw = pack.codici_smaltimento_materiali.value
+    visual_raw = pack.simboli_materiali_smaltimento.value
+
+    if text_raw is None or visual_raw is None:
+        return None
+
+    def _extract_codes(text: str) -> set[str]:
+        # Uppercase and strip, then capture only alpha-only tokens as code prefixes.
+        return {m.group(1) for m in _MATERIAL_CODE_RE.finditer(text.upper())}
+
+    text_codes = _extract_codes(text_raw)
+    visual_codes = _extract_codes(visual_raw)
+
+    return text_codes == visual_codes
 
 
 def _required_symbols_present(pack: PackData) -> list[str]:
@@ -68,4 +205,12 @@ def _required_symbols_present(pack: PackData) -> list[str]:
     Return a list of field names for required symbols that are absent
     or have confidence below 0.5.
     """
-    raise NotImplementedError("Session 4 deliverable")
+    absent: list[str] = []
+    for field_name in _REQUIRED_SYMBOL_FIELDS:
+        symbol: PresenceField = getattr(pack, field_name)
+        if symbol.present is False:
+            absent.append(field_name)
+        elif symbol.present is None and symbol.confidence < 0.5:
+            # Cannot confirm presence and low confidence — treat as uncertain/absent.
+            absent.append(field_name)
+    return absent

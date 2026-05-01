@@ -32,7 +32,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from src.parsing import extract_text_fields
+from src.parsing import extract_text_fields, parse_filename
 from src.schemas.pack import PackData
 from src.sheets import write_pack, write_run_metadata
 from src.validator import validate
@@ -47,7 +47,52 @@ def run_single(pdf_path: Path) -> PackData:
     Process one PDF end-to-end (blocking). Returns the final PackData.
     Raises PipelineError on unrecoverable failure.
     """
-    raise NotImplementedError("Session 6 deliverable")
+    t0 = time.perf_counter()
+    sheet_id = os.getenv("GOOGLE_SHEET_ID", "")
+
+    try:
+        ean, _, _ = parse_filename(pdf_path.name)
+    except ValueError as exc:
+        raise PipelineError(pdf_path.name, "filename_parse", exc) from exc
+
+    logger.info("Pipeline start | ean={} | file={}", ean, pdf_path.name)
+
+    try:
+        try:
+            parser_output = extract_text_fields(pdf_path)
+        except Exception as exc:
+            raise PipelineError(pdf_path.name, "parsing", exc) from exc
+        logger.info("Parsing done | ean={}", ean)
+
+        try:
+            vlm_output = extract_visual_fields(pdf_path, parser_output)
+        except Exception as exc:
+            raise PipelineError(pdf_path.name, "vlm", exc) from exc
+        logger.info("VLM done | ean={}", ean)
+
+        result = validate(parser_output, vlm_output)
+        logger.info(
+            "Validation done | ean={} | overall_confidence={:.2f} | needs_review={}",
+            ean,
+            result.overall_confidence,
+            result.needs_review,
+        )
+
+        if sheet_id:
+            write_pack(result, sheet_id)
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            write_run_metadata(pdf_path.name, "success", latency_ms, None, sheet_id)
+            logger.info("Sheet write done | ean={}", ean)
+
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        logger.info("Pipeline complete | ean={} | latency_ms={}", ean, latency_ms)
+        return result.pack
+
+    except PipelineError as exc:
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        if sheet_id:
+            write_run_metadata(pdf_path.name, "error", latency_ms, str(exc), sheet_id)
+        raise
 
 
 async def run_batch(pdf_paths: list[Path]) -> list[PackData | Exception]:
@@ -56,7 +101,23 @@ async def run_batch(pdf_paths: list[Path]) -> list[PackData | Exception]:
     Returns results in input order; failed items are returned as exceptions,
     not raised, so the batch continues on partial failure.
     """
-    raise NotImplementedError("Session 6 deliverable")
+    logger.info(
+        "Batch start | count={} | max_concurrent={}", len(pdf_paths), MAX_CONCURRENT_PDFS
+    )
+
+    sem = asyncio.Semaphore(MAX_CONCURRENT_PDFS)
+
+    async def _run_one(path: Path) -> PackData | Exception:
+        async with sem:
+            loop = asyncio.get_running_loop()
+            try:
+                return await loop.run_in_executor(None, run_single, path)
+            except Exception as exc:
+                logger.error("Batch item failed | file={} | error={}", path.name, exc)
+                return exc
+
+    tasks = [_run_one(p) for p in pdf_paths]
+    return await asyncio.gather(*tasks)
 
 
 class PipelineError(Exception):

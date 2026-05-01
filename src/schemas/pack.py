@@ -155,7 +155,7 @@ class PackData(BaseModel):
     def confidence_map(self) -> dict[str, float]:
         """Return {field_name: confidence} for every field that carries confidence."""
         result: dict[str, float] = {}
-        for name in self.model_fields:
+        for name in PackData.model_fields:
             val = getattr(self, name)
             if isinstance(val, (ExtractedField, PresenceField)):
                 result[name] = val.confidence
