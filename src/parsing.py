@@ -81,9 +81,19 @@ _IMPERMEABILITA_NON_RE = re.compile(
     r"(Non\s+impermeabile|Not\s+waterproof)", re.IGNORECASE
 )
 
-# Charging mode — e.g. "Ricarica magnetica", "Ricarica USB". Exclude bare "Ricarica:".
+# Charging mode — match only known charging-method keywords that follow "Ricarica".
+# Using an explicit allowlist avoids false positives from "Ricarica energetica",
+# "ricarica" in disposal instructions, or other non-charging context on the packaging.
+_RICARICA_MODES = (
+    "magnetica", "USB", "minijack", "mini-jack", "Type-C", "type-c",
+    "wireless", "induttiva", "micro-USB", "microusb",
+)
+_RICARICA_MODES_PATTERN = "|".join(re.escape(m) for m in _RICARICA_MODES)
+# Match "Ricarica <mode>" exactly; no optional trailing word to avoid absorbing
+# bilingual repetitions (e.g. "Ricarica minijack Minijack") or other context.
 _RICARICA_RE = re.compile(
-    r"(Ricarica\s+(?!:)\w+(?:\s+\w+)?)", re.IGNORECASE
+    rf"\b(Ricarica\s+(?:{_RICARICA_MODES_PATTERN}))\b",
+    re.IGNORECASE,
 )
 
 # Paper code prefixes (go to scatola / doypack).
@@ -101,6 +111,11 @@ _MATERIAL_TOKENS: list[str] = [
 _MATERIAL_TOKENS_LOWER: set[str] = {t.lower() for t in _MATERIAL_TOKENS}
 # Canonical casing map: lowercase → display form.
 _MATERIAL_CANONICAL: dict[str, str] = {t.lower(): t for t in _MATERIAL_TOKENS}
+
+# Regex for splitting an OCR line into individual material token candidates.
+# Splits on whitespace, slashes, commas, and dashes so that combined OCR lines
+# like "Silicone/ABS" or "PVC / Metallo" are handled correctly.
+_MATERIAL_TOKEN_SPLIT_RE: re.Pattern[str] = re.compile(r"[\s/,\-]+")
 
 # Known product-type sequences, longest-first so "Vibratore rabbit" beats "Vibratore".
 _PRODUCT_TYPES: list[str] = [
@@ -169,17 +184,23 @@ def _extract_materiale(full_text: str) -> str | None:
     """
     Locate consecutive known material tokens in the OCR text and join with '/'.
 
-    Searches line by line; collects adjacent matches (within 3 lines of each
-    other) into a single material string. Returns canonical casing e.g.
-    "Silicone/ABS", "PVC/Metallo".  Returns None if no known tokens found.
+    Searches line by line, splitting each line on whitespace and punctuation
+    (slash, comma, dash) so that OCR lines like "Silicone/ABS" or
+    "PVC / Metallo" are handled correctly.  Collects adjacent matches
+    (within 3 lines of each other) into a single material string.
+    Returns canonical casing e.g. "Silicone/ABS", "PVC/Metallo".
+    Returns None if no known tokens found.
     """
     lines = full_text.splitlines()
     found: list[tuple[int, str]] = []  # (line_index, canonical_token)
 
     for idx, line in enumerate(lines):
-        stripped = line.strip().lower()
-        if stripped in _MATERIAL_TOKENS_LOWER:
-            found.append((idx, _MATERIAL_CANONICAL[stripped]))
+        # Tokenise the line to handle combined forms like "Silicone/ABS".
+        raw_tokens = _MATERIAL_TOKEN_SPLIT_RE.split(line.strip())
+        for raw_tok in raw_tokens:
+            cleaned = raw_tok.strip().lower()
+            if cleaned and cleaned in _MATERIAL_TOKENS_LOWER:
+                found.append((idx, _MATERIAL_CANONICAL[cleaned]))
 
     if not found:
         return None
@@ -201,7 +222,15 @@ def _extract_materiale(full_text: str) -> str | None:
 
     # Return the largest group (most tokens), then first occurrence.
     best_group = max(groups, key=len)
-    return "/".join(best_group)
+    # Dedup while preserving order — OCR often duplicates the material line
+    # (Italian + bold variant rendered as two separate text regions).
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for tok in best_group:
+        if tok not in seen:
+            seen.add(tok)
+            deduped.append(tok)
+    return "/".join(deduped)
 
 
 def _extract_tipo_o_modello(full_text: str) -> str | None:
@@ -220,36 +249,90 @@ def _extract_tipo_o_modello(full_text: str) -> str | None:
 
 def _extract_disposal_codes_from_text(full_text: str) -> dict[str, str]:
     """
-    Extract material disposal codes from OCR text using prefix matching.
+    Extract material disposal codes from OCR text using a prefix-proximity strategy.
 
-    Finds tokens matching r"\\b([A-Z]{2,4})(\\d{1,2})\\b" (with optional
-    space between prefix and digits) and categorises them as paper → scatola,
-    plastic → sacchetto, third code → doypack (rare).
+    Strategy (robust to OCR separating prefix and digits onto different lines):
+    1. For each known prefix in ``_PAPER_PREFIXES | _PLASTIC_PREFIXES``, locate
+       every occurrence in the text (whole-word, case-insensitive).
+    2. For each prefix occurrence, look in the 80-character window immediately
+       following it for a 1-2-digit number.  This tolerates a newline or a few
+       spaces between prefix and digits but avoids false pairings with distant
+       numbers elsewhere in the document.
+    3. Categorise: paper prefix (PAP preferred over FR) → scatola,
+       plastic prefix → sacchetto.
+    4. Return canonical formatted codes like "PAP21" (no space, preserve digits
+       as they appear — e.g. "07" not "7").
 
-    Returns a dict mapping field names to formatted code strings like "PAP21".
+    Prefers PAP over FR for scatola because PAP is the primary packaging code
+    used by this brand; FR is a secondary/alternative paper code and should
+    only fill scatola when PAP is absent.
     """
-    # Match codes with or without a space between letters and digits.
-    code_pattern = re.compile(r"\b([A-Z]{2,4})\s*(\d{1,2})\b")
+    # Ordered preference for paper prefixes: PAP binds first, FR is fallback.
+    _PAPER_PREFIX_RANK: dict[str, int] = {"PAP": 0, "FR": 1}
+
+    # All known prefixes to scan for.
+    all_known_prefixes: frozenset[str] = _PAPER_PREFIXES | _PLASTIC_PREFIXES
+
+    # Window size (chars) after each prefix occurrence in which to look for digits.
+    # Tight: only accept digits immediately adjacent to the prefix (e.g. "PAP21"
+    # joined, or "PAP\n21" with single newline). RapidOCR on these packaging
+    # PDFs rarely captures the small disposal-code digits at all — so when the
+    # prefix appears alone we MUST NOT scan further and grab unrelated numbers
+    # (lot, EAN). Conservative: digits must be within 5 chars of the prefix end.
+    _WINDOW = 5
+
+    candidates: list[tuple[str, str, int]] = []  # (prefix, formatted_code, rank)
+
+    # Match prefix either as a standalone word (\b...\b) OR immediately followed by
+    # digits (e.g. "PAP21" joined by OCR).  The two alternatives are ordered so
+    # the joined form is tried first (longer match wins).
+    all_prefixes_sorted = sorted(all_known_prefixes, key=len, reverse=True)
+    prefix_re = re.compile(
+        r"(?<![A-Za-z])("
+        + "|".join(re.escape(p) for p in all_prefixes_sorted)
+        + r")(?:\b|(?=\d))",
+        re.IGNORECASE,
+    )
+    digit_re = re.compile(r"(\d{1,2})(?!\d)")
+
+    # Regex for normalising common OCR artifact: isolated "O" or "o" that should
+    # be digit "0".  We only substitute when the O is surrounded by digits or
+    # positioned at the start of a numeric token, e.g. "O7" → "07".
+    _ocr_o_to_zero = re.compile(r"\bO(\d)\b", re.IGNORECASE)
+
+    for m_prefix in prefix_re.finditer(full_text):
+        prefix = m_prefix.group(1).upper()
+        # Look in the window after the prefix for the first 1-2-digit number.
+        window_start = m_prefix.end()
+        window_end = window_start + _WINDOW
+        window_text = full_text[window_start:window_end]
+
+        # Normalise OCR O/o → 0 before extracting digits.
+        window_text = _ocr_o_to_zero.sub(r"0\1", window_text)
+
+        m_digit = digit_re.search(window_text)
+        if m_digit is None:
+            continue  # no digit in window — skip
+
+        digit_str = m_digit.group(1)
+        formatted = f"{prefix}{digit_str}"  # e.g. "PAP21", "CPE07"
+        rank = _PAPER_PREFIX_RANK.get(prefix, 99)
+        candidates.append((prefix, formatted, rank))
+
+    # Select the best paper candidate (lowest rank = highest preference).
+    paper_candidates = sorted(
+        [(rank, fmt) for (pfx, fmt, rank) in candidates if pfx in _PAPER_PREFIXES],
+        key=lambda t: t[0],
+    )
+    plastic_candidates = [
+        fmt for (pfx, fmt, _rank) in candidates if pfx in _PLASTIC_PREFIXES
+    ]
+
     result: dict[str, str] = {}
-    scatola: str | None = None
-    sacchetto: str | None = None
-
-    for m in code_pattern.finditer(full_text):
-        prefix = m.group(1).upper()
-        digits = m.group(2)
-        formatted = f"{prefix}{digits}"  # canonical: no space, e.g. "PAP21"
-
-        if scatola is None and prefix in _PAPER_PREFIXES:
-            scatola = formatted
-        elif sacchetto is None and prefix in _PLASTIC_PREFIXES:
-            sacchetto = formatted
-        # Doypack: first code that is neither scatola nor sacchetto and both
-        # already assigned.  Rare — skip if insufficient codes.
-
-    if scatola is not None:
-        result["codice_smaltimento_scatola"] = scatola
-    if sacchetto is not None:
-        result["codice_smaltimento_sacchetto"] = sacchetto
+    if paper_candidates:
+        result["codice_smaltimento_scatola"] = paper_candidates[0][1]
+    if plastic_candidates:
+        result["codice_smaltimento_sacchetto"] = plastic_candidates[0]
 
     return result
 
