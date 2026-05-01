@@ -108,7 +108,6 @@ class PackData(BaseModel):
     # -- TEXT_IN_PDF: contact / marketing -------------------------------
     sito_web: ExtractedField = Field(default_factory=ExtractedField)
     assistenza_clienti: ExtractedField = Field(default_factory=ExtractedField)
-    sexy_ideas: ExtractedField = Field(default_factory=ExtractedField)
 
     # -- VISUAL: regulatory symbols -------------------------------------
     # Interesting signal is *absence*, not presence — legally required on every pack.
@@ -122,8 +121,14 @@ class PackData(BaseModel):
     # simboli_materiali_smaltimento: textual description of the visual
     # recycling symbols (triangle + codes), used to validate TRIMAN consistency.
     simboli_materiali_smaltimento: ExtractedField = Field(default_factory=ExtractedField)
-    # qr_code_junker: decoded URL from the Junker QR code on the back panel.
-    qr_code_junker: ExtractedField = Field(default_factory=ExtractedField)
+    # qr_code_junker: presence of the Junker QR code on the pack (visual-only).
+    qr_code_junker: PresenceField = Field(default_factory=PresenceField)
+
+    # -- PRESENCE: marketing / feature markers --------------------------
+    # sexy_ideas: True if the "sexy ideas" marketing marker appears on the pack.
+    # Detectable via text substring when selectable text is available;
+    # otherwise requires VLM confirmation.
+    sexy_ideas: PresenceField = Field(default_factory=PresenceField)
 
     # -- DERIVED --------------------------------------------------------
     # True  = TRIMAN icon materials match codici_smaltimento_materiali text

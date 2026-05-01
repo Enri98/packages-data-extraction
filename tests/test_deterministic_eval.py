@@ -122,7 +122,7 @@ def test_aggregate_accuracy() -> None:
 
     table = "\n".join(table_lines)
     summary_line = (
-        f"\nAGGREGATE — correct={total['correct']} wrong={total['wrong']} "
+        f"\nAGGREGATE -- correct={total['correct']} wrong={total['wrong']} "
         f"missing={total['missing']} unexpected={total['unexpected']} "
         f"not_in_schema={total['not_in_schema']} "
         f"accuracy={overall_accuracy:.1%}"

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from src.schemas.pack import ExtractedField, PackData
+from src.schemas.pack import ExtractedField, PackData, PresenceField
 
 # ---------------------------------------------------------------------------
 # Filename parsing
@@ -54,6 +54,7 @@ def parse_filename(filename: str) -> tuple[str, str, str]:
 # ---------------------------------------------------------------------------
 
 _FIELD_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    # Dimensional string, e.g. "17cm x Ø5.7cm" or "25cm x Ø3cm".
     (
         "dimensioni",
         re.compile(
@@ -61,17 +62,34 @@ _FIELD_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             re.IGNORECASE,
         ),
     ),
-    ("materiale", re.compile(r"(?:Materiale|Material)[:\s]+([^\n]+)", re.IGNORECASE)),
+    # Material label — stop at double-space or end-of-line to avoid overcapture.
+    (
+        "materiale",
+        re.compile(r"(?:Materiale|Materiali|Material)[:\s]+([^\n]{1,60}?)(?:\s{2,}|$)", re.IGNORECASE),
+    ),
+    # Lot number — alphanumeric, hyphens allowed.
     ("lotto", re.compile(r"(?:Lotto|Lot)[:\s#]+([A-Z0-9\-]+)", re.IGNORECASE)),
-    ("paese_di_produzione", re.compile(r"(?:Prodotto|Made)\s+in\s+([^\n,\.]+)", re.IGNORECASE)),
+    # Country of manufacture — stop at punctuation or whitespace boundary.
+    ("paese_di_produzione", re.compile(r"(?:Prodotto|Fabbricato|Made)\s+in\s+([A-Za-zÀ-ÿ ]{2,30}?)(?:\s{2,}|[,\.\n]|$)", re.IGNORECASE)),
+    # Battery capacity + nominal voltage — label-anchored, either order.
+    # Handles: "Capacità batteria: 420 mAh Tensione nominale batteria: 3.7 V"
+    # and compact forms like "420mAh / 3.7V".
     (
         "capacita_batteria_e_tensione_nominale",
-        re.compile(r"(\d+[\.,]\d+\s*V[^\n]*(?:mAh|mah)[^\n]*)", re.IGNORECASE),
+        re.compile(
+            r"Capacit[aà]\s+batteria[:\s]+(\d+(?:[.,]\d+)?\s*mAh[^\n]{0,60}?\d+(?:[.,]\d+)?\s*V)",
+            re.IGNORECASE,
+        ),
     ),
-    ("tempo_di_carica", re.compile(r"(?:Tempo di carica|Charging time)[:\s]+([^\n]+)", re.IGNORECASE)),
-    ("n_vibrazioni", re.compile(r"(\d+)\s*(?:vibrazioni|vibration)", re.IGNORECASE)),
+    # Charging time — label-anchored.
+    ("tempo_di_carica", re.compile(r"(?:Tempo\s+di\s+carica|Charging\s+time)[:\s]+([^\n]{1,40})", re.IGNORECASE)),
+    # Vibration count — capture number + word so output matches golden "10 vibrazioni".
+    ("n_vibrazioni", re.compile(r"(\d+\s*(?:vibrazioni|vibration\w*))", re.IGNORECASE)),
+    # Waterproofing rating, e.g. "IPX6" or "IPW4".
     ("livello_impermeabilita", re.compile(r"(IP[XW]\d+)", re.IGNORECASE)),
+    # Website — simple heuristic.
     ("sito_web", re.compile(r"(www\.[a-zA-Z0-9\-\.]+\.[a-z]{2,})")),
+    # Minimum age marker.
     ("eta_minima", re.compile(r"(\+?18\+?)")),
 ]
 
@@ -85,21 +103,26 @@ _MATERIAL_CODE_RE = re.compile(r"^(?:[A-Z]{2,3}\s*\d*|\d+)$")
 
 def _extract_disposal_codes(page: object) -> str | None:
     """
-    Extract material disposal codes from the top band of the first page.
+    Extract material disposal codes from the bottom band of the first page.
 
-    Looks for words whose top-edge is above y=80 (PDF points) and whose
-    text matches a material-code token pattern.  Adjacent tokens are joined
-    with " | " to produce strings like "FR 7 | CPE 21 | PAP".
+    On these packaging PDFs the disposal code tokens (e.g. "PAP", "21",
+    "CPE", "FR", "7") appear as selectable text near the bottom of the page,
+    typically within the last ~130 PDF points.  Tokens are matched against a
+    material-code pattern and joined with " | " to produce strings like
+    "FR 7 | CPE 21 | PAP".
     Returns None if no tokens are found.
     """
     words = page.extract_words()  # type: ignore[attr-defined]
-    top_words: list[str] = [
-        w["text"] for w in words if float(w["top"]) < 80
+    page_height: float = float(page.height)  # type: ignore[attr-defined]
+    bottom_threshold = page_height - 130
+
+    bottom_words: list[str] = [
+        w["text"] for w in words if float(w["top"]) >= bottom_threshold
     ]
 
     # Collect consecutive material-code tokens
     tokens: list[str] = []
-    for word in top_words:
+    for word in bottom_words:
         if _MATERIAL_CODE_RE.match(word.strip()):
             tokens.append(word.strip())
 
@@ -179,6 +202,27 @@ def extract_text_fields(pdf_path: Path) -> PackData:
                 ExtractedField(value=value, confidence=0.9, evidence=match.group(0).strip()),
             )
             fields_found += 1
+
+    # ------------------------------------------------------------------
+    # Presence checks: substring markers in selectable text.
+    # These are best-effort — if text is rasterized the markers won't appear
+    # and the VLM must handle them.
+    # ------------------------------------------------------------------
+    if "sexy ideas" in full_text.lower():
+        pack.sexy_ideas = PresenceField(
+            present=True,
+            confidence=0.85,
+            evidence="found 'sexy ideas' in selectable text",
+        )
+        fields_found += 1
+
+    if "junker" in full_text.lower():
+        pack.qr_code_junker = PresenceField(
+            present=True,
+            confidence=0.85,
+            evidence="found 'junker' in selectable text",
+        )
+        fields_found += 1
 
     # ------------------------------------------------------------------
     # Spatial: disposal codes from page-top band

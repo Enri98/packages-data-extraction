@@ -24,7 +24,15 @@ PDF_TO_GOLDEN: dict[str, Path] = {
 }
 
 # Sentinel returned when the field name does not exist on PackData.
-NOT_IN_SCHEMA = object()
+class _NotInSchemaSentinel:
+    def __repr__(self) -> str:
+        return "<not in schema>"
+
+    def __str__(self) -> str:
+        return "<not in schema>"
+
+
+NOT_IN_SCHEMA = _NotInSchemaSentinel()
 
 
 # ---------------------------------------------------------------------------
