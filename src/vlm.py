@@ -33,7 +33,13 @@ from google import genai
 from google.genai import types
 from loguru import logger
 from pydantic import BaseModel, Field, create_model
-from tenacity import RetryCallState, retry, stop_after_attempt, wait_exponential
+from tenacity import (
+    RetryCallState,
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from src.parsing import parse_filename
 from src.schemas.pack import ExtractedField, PackData, PresenceField
@@ -326,10 +332,25 @@ def _log_retry(state: RetryCallState) -> None:
         )
 
 
+def _is_transient(exc: BaseException) -> bool:
+    """
+    Retry only on server-side / capacity errors. Don't burn attempts on 4xx
+    client mistakes (bad schema, bad request, auth) — those won't fix themselves.
+    """
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code in (429, 500, 502, 503, 504):
+        return True
+    # Network-layer errors (timeouts, connection drops) — also worth retrying.
+    msg = str(exc).lower()
+    return any(s in msg for s in ("timeout", "connection", "unavailable", "high demand"))
+
+
 @retry(
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=4, max=60),
+    stop=stop_after_attempt(5),
+    retry=retry_if_exception(_is_transient),
     before=_log_retry,
+    reraise=True,
 )
 def _upload_with_retry(client: genai.Client, pdf_path: Path) -> Any:
     """Upload the PDF to the Gemini Files API with exponential-backoff retry."""
@@ -337,9 +358,11 @@ def _upload_with_retry(client: genai.Client, pdf_path: Path) -> Any:
 
 
 @retry(
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=4, max=60),
+    stop=stop_after_attempt(5),
+    retry=retry_if_exception(_is_transient),
     before=_log_retry,
+    reraise=True,
 )
 def _generate_with_retry(
     client: genai.Client,
@@ -361,6 +384,10 @@ def _generate_with_retry(
             response_mime_type="application/json",
             response_schema=response_model,
             temperature=0.0,
+            # HIGH resolution gives Gemini more pixels per page — important
+            # because the disposal-code numeric suffixes (e.g. "21" in PAP21)
+            # and small regulatory icons are <1mm on the printed pack.
+            media_resolution=types.MediaResolution.MEDIA_RESOLUTION_HIGH,
         ),
     )
 

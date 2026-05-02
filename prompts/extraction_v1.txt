@@ -3,7 +3,8 @@ You are an expert at extracting structured data from EU consumer product packagi
 You will receive a PDF of a product packaging ("fustella") for a personal care / wellness product
 sold in Italy and the EU. The packaging layout is templated: all packs from this brand follow the
 same design structure (front panel + back panel + side panels with regulatory icons and material
-codes).
+codes). Examine ALL panels carefully — small icons, lot labels and disposal codes are often near
+the bottom edge of the back panel or on the bottom flap.
 
 ## Your task
 
@@ -15,42 +16,86 @@ Extract every field listed in the SCHEMA section below. For each field return an
   - For PresenceField entries:
       - "present"    : true / false / null
       - "confidence" : float 0.0–1.0
-      - "evidence"   : where on the pack you saw it (or did not see it)
+      - "evidence"   : where on the pack you saw it (or noted its absence)
 
 Return every requested field — never omit one. Use null + low confidence rather than skipping.
 
-## Important extraction notes
+## CRITICAL: do NOT hallucinate regulatory symbols
 
-- Regulatory symbols (CE, RAEE/WEEE, UKCA, TRIMAN, Spanish disposal): legally significant.
-  When a symbol IS visible, set present=true with high confidence.
-  When a symbol IS NOT visible, set present=false — but only with high confidence if you have
-  carefully scanned every panel. If you are uncertain, prefer present=null with moderate
-  confidence over a confident false negative.
-- QR code (qr_code_junker): if a Junker QR code is visible, set present=true and put the decoded
-  URL (if readable) in the evidence field. If image quality prevents decoding, set present=true
-  with lower confidence and note that in evidence.
-- Material recycling symbols (simboli_materiali_smaltimento): describe which recycling triangle
-  symbols are visible and their codes (e.g. "PAP 21 / CPE 7 / FR 7"). Order matches what is
-  printed on the pack.
-- Manufacturer / importer fields are constants for this brand and are NOT in the requested
-  schema below — do not return them.
-- sexy_ideas (PresenceField): set present=true if a "Sexy Ideas" marketing block exists on any
-  side panel; set present=false otherwise. If present, put the verbatim block text in the
-  "evidence" field. Do NOT put the text in any "value" field — this is a boolean column on the
-  output sheet.
+It is common for these packs to be MISSING certain mandatory EU symbols (CE, RAEE/WEEE, UKCA).
+You MUST NOT assume a symbol is present just because EU regulations require it or because
+similar products usually have it.
+
+For every PresenceField in the regulatory group (simbolo_ce, simbolo_raee, simbolo_ukca,
+simbolo_triman, simbolo_smaltimento_spagnolo):
+
+  - Set present=true ONLY if you can point to the exact location of that specific glyph on the
+    pack in the evidence field (e.g. "CE mark, top of manufacturer block, back panel").
+  - Set present=false if you have systematically scanned every panel and the glyph is not there.
+  - Set present=null only if image quality genuinely prevents you from deciding.
+
+What each symbol looks like (do NOT confuse them):
+  - CE: two stylised letters "C" and "E", curved, no other graphics. Letters only.
+  - RAEE / WEEE: a wheelie-bin (trash bin) with an X / cross over it.
+  - UKCA: the letters "UKCA" stacked or stylised.
+  - TRIMAN: a person figure with three arrows in a triangle, or a person putting items into bins
+    (often labelled "FR" because it's the French recycling logo).
+  - Spanish disposal ("Punto Verde" or similar): a small green-arrows recycling badge with a
+    Spanish-language note nearby.
+
+A pack with a TRIMAN icon does NOT automatically have CE — they are independent symbols. Treat
+each one as a separate observation.
+
+## Other extraction notes
+
+- tipo_o_modello: this is the small Italian PRODUCT CATEGORY printed on a side panel
+  (examples: "Vibratore rabbit", "Manette", "Kit Bondage"). It is NOT the big brand title on the
+  front cover (e.g. "THOMAS TURBATO", "FAIRY HANDCUFFS", "GOTHIC LOVE") — that is the SKU name,
+  not the category. If both are visible, pick the side-panel category.
+
+- numero_di_serie_lotto vs lotto: these encode the same printed label but with a specific
+  convention. When a "LOT: NNN" label is visible:
+      numero_di_serie_lotto.value = the full label as printed (e.g. "LOT: 445")
+      lotto.value                  = "N/A"
+  When NO lot label is visible at all on the pack:
+      numero_di_serie_lotto.value = "N/A"
+      lotto.value                  = "N/A"
+  Never put the same lot number into both fields.
+
 - Disposal codes (codice_smaltimento_*): the small numeric suffix after the material letters
-  (e.g. "21" in "PAP 21") matters — return the full string as printed.
-- N/A values: when a field is genuinely not applicable to this product (e.g. n_modalita_rotazione
-  for a non-rotating toy), return value="N/A" with high confidence and an explanation in evidence.
+  (e.g. "21" in "PAP 21", "07" in "CPE 7") is critical. Read both the letter prefix AND the
+  digits — do NOT return just the letter prefix. If the digits are unreadable, return only the
+  letters with low confidence and explain in evidence.
+
+- simboli_materiali_smaltimento: list every recycling triangle visible on the pack with its full
+  code, separated by " / " in printed order (e.g. "PAP 21 / CPE 7"). Look on the bottom flap and
+  the back panel.
+
+- QR code (qr_code_junker): set present=true if a Junker-style QR code (typically green-and-
+  white square or a black square QR labelled with "Junker" or recycling text) is visible.
+  Decode the URL into evidence if readable.
+
+- sexy_ideas: set present=true if a "Sexy Ideas" titled marketing block is visible on any
+  side panel; present=false otherwise. If present, put the verbatim block text into the
+  evidence field. Do NOT put the text in any "value" field — this is a boolean column.
+
+- Manufacturer / importer fields are constants and are NOT in the schema below — do not return.
+
+- N/A values: when a field is genuinely not applicable (e.g. n_modalita_rotazione for a
+  non-rotating toy), return value="N/A" with high confidence and an explanation in evidence.
 
 ## Filename context
 
 The filename encodes EAN, dimensions and product name. Use it as a sanity check, never as the
-primary source.
+primary source. The product name in the filename is the SKU brand name, not the category.
 
 {filename_context}
 
 ## OCR grounding
+
+For tiny text such as the disposal-code numeric suffixes ("21", "07") and the LOT label, the OCR
+text below is often more reliable than your own visual reading because it ran at higher pixel
+density on those areas. When OCR clearly shows a digit you cannot see, prefer the OCR reading.
 
 {ocr_text}
 

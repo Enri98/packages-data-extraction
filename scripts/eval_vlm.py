@@ -19,10 +19,16 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 # Repo root on sys.path when invoked directly.
 _REPO_ROOT = Path(__file__).parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+# Load .env from repo root so editing the file is enough — no need to also
+# export the vars in the shell. Loaded before any module reads os.environ.
+load_dotenv(_REPO_ROOT / ".env")
 
 from loguru import logger  # noqa: E402
 
@@ -198,20 +204,33 @@ def render_comparison(per_pdf: dict[str, dict[str, dict[str, dict]]]) -> None:
             all_fields.update(fields.keys())
 
         for field in sorted(all_fields):
-            # Use the first mode's expected value (identical across modes).
-            first_mode = mode_labels[0]
-            expected = by_mode[first_mode][field]["expected"]
+            # Find an "expected" value from any mode that ran successfully.
+            expected: Any = None
+            for m in mode_labels:
+                if field in by_mode.get(m, {}):
+                    expected = by_mode[m][field]["expected"]
+                    break
 
-            # Skip rows where every mode is correct — keeps signal high.
-            outcomes = {m: by_mode[m][field]["outcome"] for m in mode_labels}
-            if all(o == Outcome.CORRECT for o in outcomes.values()):
+            # Per-mode outcome with graceful fallback for failed modes.
+            cells: list[tuple[str, str]] = []
+            all_correct = True
+            for m in mode_labels:
+                fields_for_mode = by_mode.get(m, {})
+                if field not in fields_for_mode:
+                    cells.append(("—", "FAIL"))
+                    all_correct = False
+                    continue
+                info = fields_for_mode[field]
+                cells.append((_value_str(info["actual"]), info["outcome"].value[:4]))
+                if info["outcome"] != Outcome.CORRECT:
+                    all_correct = False
+
+            if all_correct:
                 continue
 
             row = f"  {field:<40} {_value_str(expected):<24}"
-            for m in mode_labels:
-                act = by_mode[m][field]["actual"]
-                oc = outcomes[m]
-                cell = f"{_value_str(act)} [{oc.value[:4]}]"
+            for actual_str, code in cells:
+                cell = f"{actual_str} [{code}]"
                 row += f" | {cell:<24}"
             print(row)
 
@@ -223,7 +242,7 @@ def render_comparison(per_pdf: dict[str, dict[str, dict[str, dict]]]) -> None:
     for mode in mode_labels:
         agg = defaultdict(int)
         for by_mode in per_pdf.values():
-            s = summarize(by_mode[mode])
+            s = summarize(by_mode.get(mode, {}))
             for k in ("correct", "wrong", "missing", "unexpected"):
                 agg[k] += s[k]
         denom = agg["correct"] + agg["wrong"] + agg["missing"] + agg["unexpected"]
@@ -240,14 +259,17 @@ def render_comparison(per_pdf: dict[str, dict[str, dict[str, dict]]]) -> None:
     print("  " + "-" * 108)
     any_delta = False
     for pdf_name, by_mode in per_pdf.items():
-        a = by_mode["vlm-image"]
-        b = by_mode["vlm-image+ocr"]
-        for field in a:
-            if a[field]["outcome"] != b[field]["outcome"]:
+        a = by_mode.get("vlm-image", {})
+        b = by_mode.get("vlm-image+ocr", {})
+        for field in set(a) | set(b):
+            oc_a = a.get(field, {}).get("outcome")
+            oc_b = b.get(field, {}).get("outcome")
+            if oc_a != oc_b:
                 any_delta = True
                 print(
                     f"  {pdf_name[:46]:<48} {field:<36} "
-                    f"{a[field]['outcome'].value[:8]:<10} {b[field]['outcome'].value[:8]:<10}"
+                    f"{(oc_a.value[:8] if oc_a else 'FAIL'):<10} "
+                    f"{(oc_b.value[:8] if oc_b else 'FAIL'):<10}"
                 )
     if not any_delta:
         print("  (no per-field outcome differences between OCR on/off)")

@@ -33,6 +33,11 @@ import uuid
 from pathlib import Path
 
 import httpx
+from dotenv import load_dotenv
+
+# Load .env before any module reads os.environ. No-op in production where
+# env vars are injected by Cloud Run / Secret Manager.
+load_dotenv()
 from fastapi import FastAPI, HTTPException, Request, status
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
