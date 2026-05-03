@@ -104,9 +104,19 @@ primary source. The product name in the filename is the SKU brand name, not the 
 
 ## OCR grounding
 
-For tiny text such as the disposal-code numeric suffixes ("21", "07") and the LOT label, the OCR
-text below is often more reliable than your own visual reading because it ran at higher pixel
-density on those areas. When OCR clearly shows a digit you cannot see, prefer the OCR reading.
+The text below is ONE signal among many — it is NOT authoritative. It was produced by rendering
+pages at 300 DPI and may miss small glyphs, in-triangle digits, single-letter symbols, or text
+rendered as outlines.
+
+**OCR silence is NOT evidence of absence.** If OCR does not mention something — a booklet icon,
+a CE mark, a small disposal label — but you can see it on the pack, trust your visual reading.
+
+When OCR and your vision agree, that raises confidence. When they disagree:
+- OCR is useful for confirming letter sequences (LOT labels, material codes like "PAP", "CPE").
+- OCR is unreliable for tiny digits inside recycling triangles. If you can see a digit clearly,
+  trust your vision even if OCR shows only the surrounding letters.
+- Never erase a digit you can see just because OCR did not capture it.
+- Never invent a digit just because OCR is silent on it.
 
 {ocr_text}
 
