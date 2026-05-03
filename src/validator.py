@@ -32,8 +32,10 @@ REVIEW_THRESHOLD = 0.75  # packs below this overall confidence go to review_queu
 _REQUIRED_SYMBOL_FIELDS: list[str] = ["simbolo_ce", "simbolo_raee", "simbolo_triman"]
 
 # Regex to extract material code prefixes (letters only, ignore numeric suffixes).
-# Examples: "FR 7" → "FR", "CPE 21" → "CPE", "PAP" → "PAP"
-_MATERIAL_CODE_RE = re.compile(r"\b([A-Z]{1,4})\b")
+# Uses look-around instead of \b so it matches inside concatenated codes like
+# "PAP21" / "CPE07" (where there is no word boundary between letters and digits).
+# Examples: "FR 7" → "FR"; "CPE 21" → "CPE"; "PAP21" → "PAP"; "C/PAP" → "C","PAP".
+_MATERIAL_CODE_RE = re.compile(r"(?<![A-Z])([A-Z]{1,4})(?![A-Z])")
 
 
 @dataclass
@@ -289,7 +291,12 @@ def _check_triman_consistency(pack: PackData) -> ExtractedField:
         # Cannot verify without visual data.
         return ExtractedField()
 
-    # Collect codes present in individual disposal fields.
+    # Collect codes present in individual disposal fields. Treat "N/A" and
+    # empty strings as absent — the VLM uses "N/A" to mark a packaging
+    # component that does not apply to this pack (e.g. no doypack).
+    def _present(v: str | None) -> bool:
+        return v is not None and v.strip() != "" and v.strip().upper() != "N/A"
+
     scatola_val = pack.codice_smaltimento_scatola.value
     sacchetto_val = pack.codice_smaltimento_sacchetto.value
     doypack_val = pack.codice_smaltimento_doypack.value
@@ -297,13 +304,13 @@ def _check_triman_consistency(pack: PackData) -> ExtractedField:
     text_codes: set[str] = set()
     label_parts: list[str] = []
 
-    if scatola_val is not None:
+    if _present(scatola_val):
         text_codes |= _collect_code_prefixes(scatola_val)
         label_parts.append("scatola")
-    if sacchetto_val is not None:
+    if _present(sacchetto_val):
         text_codes |= _collect_code_prefixes(sacchetto_val)
         label_parts.append("sacchetto")
-    if doypack_val is not None:
+    if _present(doypack_val):
         text_codes |= _collect_code_prefixes(doypack_val)
         label_parts.append("doypack")
 

@@ -95,6 +95,14 @@ def normalize(s: Any) -> Any:
     out = re.sub(r"\s+", " ", out).strip()
     out = re.sub(r"\s*/\s*", "/", out)
 
+    # Strip a leading "LOT:" / "LOT " prefix so the bare number form ("445")
+    # compares equal to the labelled form ("LOT: 445"). Either is acceptable.
+    out = re.sub(r"^lot[:\s]+", "", out)
+
+    # Drop the "vibrazioni" unit word: "10 vibrazioni" ≡ "10". The field name
+    # n_vibrazioni already implies the unit, so either form is acceptable.
+    out = re.sub(r"(\d+)\s*vibrazioni\b", r"\1", out)
+
     # Collapse whitespace at digit↔letter boundaries: "420 mah" / "420mah" /
     # "3.7 v" / "3.7v" / "25 cm" / "25cm" all canonicalise to the no-space form.
     out = re.sub(r"(\d)\s+([a-zà-ÿ])", r"\1\2", out)
