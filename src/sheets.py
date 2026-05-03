@@ -26,7 +26,6 @@ Tabs required in the target Sheet:
   run_metadata  — one row per pipeline run (including errors)
 """
 
-import os
 from datetime import datetime, timezone
 
 import gspread
@@ -34,6 +33,7 @@ from loguru import logger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.schemas.pack import PackData
+from src.secrets import load_service_account_info
 from src.validator import ValidationResult
 
 
@@ -49,20 +49,16 @@ class SheetConfigError(Exception):
 def get_sheet_client() -> gspread.Client:
     """
     Return an authenticated gspread client.
-    Reads GOOGLE_SERVICE_ACCOUNT_JSON from the environment.
+
+    Reads GOOGLE_SERVICE_ACCOUNT_JSON from the environment via
+    ``load_service_account_info``, which handles both a local file path
+    (local dev) and an inline JSON string (Cloud Run ``--update-secrets``).
     """
-    path = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-    if not path:
-        raise SheetConfigError(
-            "GOOGLE_SERVICE_ACCOUNT_JSON environment variable is not set. "
-            "Set it to the path of a valid service account JSON key file."
-        )
-    if not os.path.isfile(path):
-        raise SheetConfigError(
-            f"Service account key file not found at path: {path!r}. "
-            "Ensure GOOGLE_SERVICE_ACCOUNT_JSON points to an existing file."
-        )
-    return gspread.service_account(filename=path)
+    try:
+        sa_info = load_service_account_info("GOOGLE_SERVICE_ACCOUNT_JSON")
+    except ValueError as exc:
+        raise SheetConfigError(str(exc)) from exc
+    return gspread.service_account_from_dict(sa_info)
 
 
 def write_pack(result: ValidationResult, sheet_id: str) -> None:
@@ -234,3 +230,67 @@ def _get_or_create_worksheet(
     except gspread.exceptions.WorksheetNotFound:
         logger.info("Worksheet '{}' not found — creating it.", title)
         return spreadsheet.add_worksheet(title=title, rows=1000, cols=50)
+
+
+def verify_sheet_schema(sheet_id: str) -> None:
+    """Verify that the ``pack_data`` worksheet header matches the Pydantic schema.
+
+    Behaviour:
+    - If row 1 is empty: writes the canonical headers (bootstrap path).
+    - If row 1 matches ``PackData._SHEET_FIELDS``: logs success at INFO.
+    - If row 1 mismatches: raises ``SheetConfigError`` — do NOT silently
+      overwrite because existing data rows may be mis-aligned already.
+
+    Args:
+        sheet_id: Google Sheets spreadsheet ID.
+
+    Raises:
+        SheetConfigError: on header mismatch or authentication failure.
+    """
+    client = get_sheet_client()
+    spreadsheet = client.open_by_key(sheet_id)
+
+    # _SHEET_FIELDS is a Pydantic v2 PrivateAttr (leading-underscore auto-private).
+    # Class access returns a ModelPrivateAttr descriptor, NOT the tuple — so
+    # we MUST instantiate to read the value. (Verified: list(PackData._SHEET_FIELDS)
+    # raises 'ModelPrivateAttr' object is not subscriptable.)
+    _sentinel = PackData(codice_ean="__verify__")
+    expected: list[str] = list(_sentinel._SHEET_FIELDS)  # type: ignore[attr-defined]
+
+    try:
+        ws = spreadsheet.worksheet(PACK_DATA_TAB)
+    except gspread.exceptions.WorksheetNotFound:
+        # Bootstrap: create the tab and write headers.
+        ws = spreadsheet.add_worksheet(title=PACK_DATA_TAB, rows=1000, cols=50)
+        ws.append_row(expected, value_input_option="USER_ENTERED")
+        logger.info(
+            "Created '{}' worksheet and wrote {} header columns.",
+            PACK_DATA_TAB,
+            len(expected),
+        )
+        return
+
+    all_values = ws.get_all_values()
+    if not all_values:
+        # Empty tab — write headers.
+        ws.append_row(expected, value_input_option="USER_ENTERED")
+        logger.info(
+            "Wrote {} header columns to empty '{}' worksheet.",
+            len(expected),
+            PACK_DATA_TAB,
+        )
+        return
+
+    actual = all_values[0]
+    if actual == expected:
+        logger.info(
+            "Sheet header verified: '{}' matches schema ({} columns).",
+            PACK_DATA_TAB,
+            len(expected),
+        )
+        return
+
+    raise SheetConfigError(
+        f"Sheet header mismatch on '{PACK_DATA_TAB}': "
+        f"expected {expected}, got {actual}"
+    )

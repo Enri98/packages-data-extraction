@@ -29,6 +29,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from src.secrets import get_secret
+
 from google import genai
 from google.genai import types
 from loguru import logger
@@ -216,7 +218,7 @@ def extract_visual_fields(
         ocr_text=ocr_text,
     )
 
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    client = genai.Client(api_key=get_secret("GEMINI_API_KEY"))
     uploaded_file = _upload_with_retry(client, pdf_path)
     logger.info(
         "Uploaded PDF to Gemini Files API | name={} | uri={}",

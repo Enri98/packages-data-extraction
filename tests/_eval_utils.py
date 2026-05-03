@@ -22,6 +22,8 @@ PDF_TO_GOLDEN: dict[str, Path] = {
     "8055712771306_220x80x45_Thomas Turbato.pdf":       _FIXTURES_DIR / "8055712771306_thomas_turbato.json",
     "8055712772860_180x80x50_OSA_Fairy-Handcuffs.pdf":  _FIXTURES_DIR / "8055712772860_fairy_handcuffs.json",
     "8055712772907_150x45x180_OSA_Gothic-Love.pdf":      _FIXTURES_DIR / "8055712772907_gothic_love.json",
+    "8055712774048_130x55x55_Disco-Booty.pdf":           _FIXTURES_DIR / "8055712774048_disco_booty.json",
+    "8055712774925_100x55x55_Tornado.pdf":               _FIXTURES_DIR / "8055712774925_tornado.json",
 }
 
 # Sentinel returned when the field name does not exist on PackData.
@@ -107,6 +109,10 @@ def normalize(s: Any) -> Any:
     # "3.7 v" / "3.7v" / "25 cm" / "25cm" all canonicalise to the no-space form.
     out = re.sub(r"(\d)\s+([a-zà-ÿ])", r"\1\2", out)
     out = re.sub(r"([a-zà-ÿ])\s+(\d)", r"\1\2", out)
+
+    # Italian decimal comma vs period: "10,5" ≡ "10.5". Both forms appear on
+    # these packs (printed as Italian comma; some goldens use English period).
+    out = re.sub(r"(\d),(\d)", r"\1.\2", out)
 
     def _canon_code(m: re.Match[str]) -> str:
         letters, digits = m.group(1), m.group(2)

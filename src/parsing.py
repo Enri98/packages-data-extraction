@@ -3,9 +3,10 @@ Text extraction from packaging PDFs.
 
 Responsibilities:
 - Parse EAN, dimensions, and product name from the filename.
-- Extract text from the PDF via OCR (default) or pdfplumber (fallback for
-  PDFs with live selectable text) and apply regex / spatial rules to populate
-  all text_in_pdf and deterministic fields.
+- Extract text from the PDF via OCR and apply regex / spatial rules to populate
+  all text_in_pdf and deterministic fields. The supplied PDFs are vector with
+  text converted to outlines (Adobe Illustrator "Crea contorni"), so
+  pdfplumber.extract_text returns ~10 chars/page; OCR is the only viable source.
 - Return a partially-filled PackData with confidence=1.0 for deterministic
   fields and confidence derived from match quality for regex fields.
 - Never makes network calls; all logic is local and fully unit-testable.
@@ -100,9 +101,6 @@ _RICARICA_RE = re.compile(
 _PAPER_PREFIXES: frozenset[str] = frozenset({"PAP", "FR"})
 # Plastic code prefixes (go to sacchetto).
 _PLASTIC_PREFIXES: frozenset[str] = frozenset({"CPE", "PE", "HDPE", "LDPE", "PP", "PS", "PET"})
-
-# Material code tokens that form disposal codes, e.g. "FR 7", "CPE 21", "PAP"
-_MATERIAL_CODE_RE = re.compile(r"^(?:[A-Z]{2,3}\s*\d*|\d+)$")
 
 # Known material token set for materiale extraction (case-insensitive matching).
 _MATERIAL_TOKENS: list[str] = [
@@ -421,157 +419,27 @@ def _extract_disposal_codes_from_text(text: str) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Spatial extraction helpers (pdfplumber path only)
-# ---------------------------------------------------------------------------
-
-def _extract_disposal_codes(page: object) -> list[str]:
-    """
-    Extract material disposal codes from the bottom band of the first page.
-
-    On these packaging PDFs the disposal code tokens (e.g. "PAP", "21",
-    "CPE", "FR", "7") appear as selectable text near the bottom of the page,
-    typically within the last ~130 PDF points.  Tokens are matched against a
-    material-code pattern and joined into individual code strings like
-    "PAP 21", "CPE 07", "FR 7".
-
-    Returns a list of code strings (may be empty).
-    Only used in the pdfplumber extraction path.
-    """
-    words = page.extract_words()  # type: ignore[attr-defined]
-    page_height: float = float(page.height)  # type: ignore[attr-defined]
-    bottom_threshold = page_height - 130
-
-    bottom_words: list[str] = [
-        w["text"] for w in words if float(w["top"]) >= bottom_threshold
-    ]
-
-    # Collect consecutive material-code tokens
-    tokens: list[str] = []
-    for word in bottom_words:
-        if _MATERIAL_CODE_RE.match(word.strip()):
-            tokens.append(word.strip())
-
-    if not tokens:
-        return []
-
-    # Pair alphabetic prefix with following numeric token when adjacent
-    # e.g. ["FR", "7", "CPE", "21", "PAP"] → ["FR 7", "CPE 21", "PAP"]
-    codes: list[str] = []
-    i = 0
-    while i < len(tokens):
-        tok = tokens[i]
-        if tok.isalpha() and i + 1 < len(tokens) and tokens[i + 1].isdigit():
-            codes.append(f"{tok} {tokens[i + 1]}")
-            i += 2
-        else:
-            codes.append(tok)
-            i += 1
-
-    return codes
-
-
-def _assign_disposal_codes(pack: PackData, codes: list[str]) -> None:
-    """
-    Split a list of disposal code strings into the three per-material fields.
-
-    Heuristic:
-    - First paper-prefixed code (PAP*, FR*) → codice_smaltimento_scatola.
-    - First plastic-prefixed code (CPE*, PE*, etc.) → codice_smaltimento_sacchetto.
-    - Any third code that doesn't fit the first two buckets → codice_smaltimento_doypack.
-
-    If only one code is found it always goes to scatola.
-    Only used in the pdfplumber extraction path.
-    """
-    scatola: str | None = None
-    sacchetto: str | None = None
-    doypack: str | None = None
-    extras: list[str] = []
-
-    for code in codes:
-        prefix = code.split()[0].upper()
-        if scatola is None and prefix in _PAPER_PREFIXES:
-            scatola = code
-        elif sacchetto is None and prefix in _PLASTIC_PREFIXES:
-            sacchetto = code
-        else:
-            extras.append(code)
-
-    # Fallback: if no categorised scatola but codes exist, put first code there.
-    if scatola is None and codes:
-        scatola = codes[0]
-        remaining = codes[1:]
-    else:
-        remaining = extras
-
-    # Third code (rare doypack) — only set when a remaining code exists.
-    if doypack is None and remaining:
-        doypack = remaining[0]
-
-    if scatola is not None:
-        pack.codice_smaltimento_scatola = ExtractedField(value=scatola, confidence=0.85)
-    if sacchetto is not None:
-        pack.codice_smaltimento_sacchetto = ExtractedField(value=sacchetto, confidence=0.85)
-    if doypack is not None:
-        pack.codice_smaltimento_doypack = ExtractedField(value=doypack, confidence=0.85)
-
-
-# ---------------------------------------------------------------------------
 # Main extraction function
 # ---------------------------------------------------------------------------
 
-def extract_text_fields(pdf_path: Path, *, source: str = "ocr") -> PackData:
+def extract_text_fields(pdf_path: Path) -> PackData:
     """
     Run the full text-extraction pipeline on a single PDF.
 
     1. Parse deterministic fields from the filename.
-    2. Obtain full text via *source* (``"ocr"`` renders and OCRs; ``"pdfplumber"``
-       uses selectable text).
+    2. OCR the PDF (renders all pages with pypdfium2, runs RapidOCR).
     3. Apply regex and code-level rules to populate text_in_pdf fields.
     4. Return a PackData with all available fields set; missing fields
        retain the default ExtractedField(value=None, confidence=0.0).
-
-    Args:
-        pdf_path: Path to the PDF file.
-        source: ``"ocr"`` (default) or ``"pdfplumber"``.
-
-    Raises:
-        ValueError: If *source* is not one of the accepted values.
     """
-    if source not in ("ocr", "pdfplumber"):
-        raise ValueError(f"Invalid source '{source}'. Must be 'ocr' or 'pdfplumber'.")
-
     ean, _dimensions, _product_name = parse_filename(pdf_path.name)
-    logger.info(
-        "Parsed filename | ean={} | dimensions={} | source={}", ean, _dimensions, source
-    )
+    logger.info("Parsed filename | ean={} | dimensions={}", ean, _dimensions)
 
     pack = PackData(codice_ean=ean)
 
-    # ------------------------------------------------------------------
-    # Obtain full text
-    # ------------------------------------------------------------------
-    if source == "ocr":
-        from src.ocr import extract_ocr_text  # local import to defer cold start
-        full_text = extract_ocr_text(pdf_path)
-        logger.info("OCR text obtained | ean={} | chars={}", ean, len(full_text))
-    else:
-        import pdfplumber  # local import keeps the module import-time cost minimal
-
-        full_text_parts: list[str] = []
-        disposal_codes: list[str] = []
-
-        with pdfplumber.open(pdf_path) as pdf:
-            for page_index, page in enumerate(pdf.pages):
-                page_text = page.extract_text() or ""
-                full_text_parts.append(page_text)
-
-                if page_index == 0:
-                    disposal_codes = _extract_disposal_codes(page)
-
-        full_text = "\n".join(full_text_parts)
-        logger.info(
-            "pdfplumber text obtained | ean={} | chars={}", ean, len(full_text)
-        )
+    from src.ocr import extract_ocr_text  # local import to defer cold start
+    full_text = extract_ocr_text(pdf_path)
+    logger.info("OCR text obtained | ean={} | chars={}", ean, len(full_text))
 
     # ------------------------------------------------------------------
     # Apply regex and code-level rules
@@ -695,21 +563,15 @@ def extract_text_fields(pdf_path: Path, *, source: str = "ocr") -> PackData:
         fields_found += 1
 
     # ------------------------------------------------------------------
-    # Disposal codes
+    # Disposal codes (from OCR text)
     # ------------------------------------------------------------------
-    if source == "ocr":
-        disposal_map = _extract_disposal_codes_from_ocr(full_text)
-        for field_name, extracted_field in disposal_map.items():
-            current: ExtractedField = getattr(pack, field_name, ExtractedField())
-            if current.confidence < extracted_field.confidence:
-                setattr(pack, field_name, extracted_field)
-        if disposal_map:
-            fields_found += 1
-    else:
-        # pdfplumber path: disposal_codes was populated above.
-        if disposal_codes:
-            _assign_disposal_codes(pack, disposal_codes)
-            fields_found += 1
+    disposal_map = _extract_disposal_codes_from_ocr(full_text)
+    for field_name, extracted_field in disposal_map.items():
+        current: ExtractedField = getattr(pack, field_name, ExtractedField())
+        if current.confidence < extracted_field.confidence:
+            setattr(pack, field_name, extracted_field)
+    if disposal_map:
+        fields_found += 1
 
     logger.info(
         "Text extraction complete | ean={} | fields_found={}", ean, fields_found
