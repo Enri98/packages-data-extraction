@@ -479,3 +479,60 @@ class TestValidate:
         )
         result = validate(parser, vlm)
         assert "tipo_o_modello" in result.flagged_fields
+
+
+class TestBackfillDisposalDigitsFromSimboli:
+    """Validator back-fill: per-field disposal codes recover missing digits
+    from the joined-list `simboli_materiali_smaltimento`."""
+
+    def _empty_pack(self) -> PackData:
+        return PackData(codice_ean="1234567890123")
+
+    def test_patches_bare_prefix_from_simboli(self) -> None:
+        from src.validator import _backfill_disposal_digits_from_simboli
+
+        pack = self._empty_pack()
+        pack.simboli_materiali_smaltimento = ExtractedField(
+            value="PAP21 / CPE07", confidence=0.9, evidence="back panel"
+        )
+        pack.codice_smaltimento_sacchetto = ExtractedField(
+            value="CPE", confidence=0.8, evidence="vlm read prefix only"
+        )
+        _backfill_disposal_digits_from_simboli(pack)
+        assert pack.codice_smaltimento_sacchetto.value == "CPE07"
+        assert "back-filled" in (pack.codice_smaltimento_sacchetto.evidence or "")
+
+    def test_leaves_full_code_untouched(self) -> None:
+        from src.validator import _backfill_disposal_digits_from_simboli
+
+        pack = self._empty_pack()
+        pack.simboli_materiali_smaltimento = ExtractedField(
+            value="PAP21 / CPE07", confidence=0.9
+        )
+        pack.codice_smaltimento_scatola = ExtractedField(value="PAP21", confidence=0.9)
+        _backfill_disposal_digits_from_simboli(pack)
+        assert pack.codice_smaltimento_scatola.value == "PAP21"
+        assert "back-filled" not in (pack.codice_smaltimento_scatola.evidence or "")
+
+    def test_noop_when_simboli_empty(self) -> None:
+        from src.validator import _backfill_disposal_digits_from_simboli
+
+        pack = self._empty_pack()
+        pack.codice_smaltimento_sacchetto = ExtractedField(value="CPE", confidence=0.8)
+        _backfill_disposal_digits_from_simboli(pack)
+        assert pack.codice_smaltimento_sacchetto.value == "CPE"
+
+    def test_fills_empty_field_when_unique_prefix_class(self) -> None:
+        """If the per-field is empty and simboli has exactly one plastic
+        prefix, fill the sacchetto field. Conservative: don't guess between
+        multiple."""
+        from src.validator import _backfill_disposal_digits_from_simboli
+
+        pack = self._empty_pack()
+        pack.simboli_materiali_smaltimento = ExtractedField(
+            value="PAP21 / CPE07", confidence=0.9
+        )
+        # sacchetto starts empty.
+        _backfill_disposal_digits_from_simboli(pack)
+        assert pack.codice_smaltimento_sacchetto.value == "CPE07"
+        assert pack.codice_smaltimento_scatola.value == "PAP21"

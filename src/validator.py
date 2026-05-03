@@ -65,6 +65,14 @@ def validate(parser_output: PackData, vlm_output: PackData) -> ValidationResult:
 
     merged_pack = PackData(**merged_data)
 
+    # Cheap recovery step: when a per-field disposal code is missing its
+    # numeric suffix (e.g. just "CPE" because the digit inside the recycling
+    # triangle was too small to read), back-fill it from the joined-list field
+    # `simboli_materiali_smaltimento` if that field carries a fully-formed code
+    # with the same letter prefix. Saves the ~1-cell-per-pack accuracy loss
+    # without any extra API call.
+    _backfill_disposal_digits_from_simboli(merged_pack)
+
     # Derived field: TRIMAN consistency requires merged visual + text data.
     merged_pack.contenuto_triman_corretto = _check_triman_consistency(merged_pack)
 
@@ -183,6 +191,85 @@ def _collect_code_prefixes(raw: str | None) -> set[str]:
     if raw is None:
         return set()
     return {m.group(1) for m in _MATERIAL_CODE_RE.finditer(raw.upper())}
+
+
+# Pattern used by the back-fill: letters (with optional internal "/" e.g. C/PAP),
+# optional whitespace, then 1-2 digits. Captures both halves.
+_FULL_DISPOSAL_CODE_RE = re.compile(r"\b([A-Z]{1,5}(?:/[A-Z]{1,5})?)\s*0*(\d{1,2})\b")
+# Pattern matching a "bare prefix" — letters only, no digit anywhere.
+_BARE_PREFIX_RE = re.compile(r"^\s*([A-Z]{1,5}(?:/[A-Z]{1,5})?)\s*$")
+
+
+def _backfill_disposal_digits_from_simboli(pack: PackData) -> None:
+    """
+    For each per-field disposal code (scatola / sacchetto / doypack), if the
+    extracted value is empty or a bare letter prefix without digits, look up
+    a matching fully-formed code in `simboli_materiali_smaltimento` and patch
+    the per-field value in place.
+
+    Example:
+        simboli_materiali_smaltimento.value = "PAP21 / CPE07"
+        codice_smaltimento_sacchetto.value  = "CPE"      ->  patched to "CPE07"
+        codice_smaltimento_scatola.value    = "PAP21"    ->  unchanged
+
+    Mutates `pack` in place. Adds a short note to the patched field's evidence.
+    """
+    simboli_raw = pack.simboli_materiali_smaltimento.value
+    if not simboli_raw:
+        return
+
+    # Build {prefix_upper: full_code_canonical} from the joined-list field.
+    prefix_to_full: dict[str, str] = {}
+    for m in _FULL_DISPOSAL_CODE_RE.finditer(simboli_raw.upper()):
+        prefix, digits = m.group(1), m.group(2)
+        prefix_to_full.setdefault(prefix, f"{prefix}{int(digits):02d}")
+
+    if not prefix_to_full:
+        return
+
+    for field_name in (
+        "codice_smaltimento_scatola",
+        "codice_smaltimento_sacchetto",
+        "codice_smaltimento_doypack",
+    ):
+        field: ExtractedField = getattr(pack, field_name)
+        current = (field.value or "").strip().upper()
+
+        # Already a full code? Skip.
+        if current and _FULL_DISPOSAL_CODE_RE.fullmatch(current):
+            continue
+
+        # Bare prefix or empty — try to back-fill.
+        bare_match = _BARE_PREFIX_RE.match(current) if current else None
+        candidate_full: str | None = None
+
+        if bare_match:
+            prefix = bare_match.group(1)
+            candidate_full = prefix_to_full.get(prefix)
+        else:
+            # Field empty: try every prefix from simboli; only patch if
+            # exactly one is plausible for this field-type. Keep it
+            # conservative — don't guess between multiple prefixes.
+            paper_prefixes = {"PAP", "FR", "C/PAP"}
+            plastic_prefixes = {"CPE", "LDPE", "HDPE", "PE", "PP", "PS", "PET"}
+            candidates: set[str]
+            if field_name == "codice_smaltimento_scatola":
+                candidates = {p for p in prefix_to_full if p in paper_prefixes}
+            elif field_name == "codice_smaltimento_sacchetto":
+                candidates = {p for p in prefix_to_full if p in plastic_prefixes}
+            else:
+                candidates = set()
+            if len(candidates) == 1:
+                candidate_full = prefix_to_full[next(iter(candidates))]
+
+        if candidate_full and candidate_full != current:
+            note = f" [back-filled from simboli: {candidate_full}]"
+            field.value = candidate_full
+            field.evidence = (field.evidence or "") + note
+            # Don't bump confidence above the source field; reuse simboli's
+            # confidence as a proxy, but cap at 0.85 so a confident later
+            # source can still overrule.
+            field.confidence = min(0.85, max(field.confidence, pack.simboli_materiali_smaltimento.confidence))
 
 
 def _check_triman_consistency(pack: PackData) -> ExtractedField:

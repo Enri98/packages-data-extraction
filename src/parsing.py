@@ -247,94 +247,177 @@ def _extract_tipo_o_modello(full_text: str) -> str | None:
     return None
 
 
-def _extract_disposal_codes_from_text(full_text: str) -> dict[str, str]:
+def _extract_disposal_codes_from_ocr(text: str) -> dict[str, ExtractedField]:
     """
-    Extract material disposal codes from OCR text using a prefix-proximity strategy.
+    Scan OCR text for recycling-triangle codes (e.g. "PAP 21", "CPE 7"),
+    canonicalise to letters + 2-digit zero-padded number, and assign them
+    to the box / bag / doypack disposal fields based on material type.
 
-    Strategy (robust to OCR separating prefix and digits onto different lines):
-    1. For each known prefix in ``_PAPER_PREFIXES | _PLASTIC_PREFIXES``, locate
-       every occurrence in the text (whole-word, case-insensitive).
-    2. For each prefix occurrence, look in the 80-character window immediately
-       following it for a 1-2-digit number.  This tolerates a newline or a few
-       spaces between prefix and digits but avoids false pairings with distant
-       numbers elsewhere in the document.
-    3. Categorise: paper prefix (PAP preferred over FR) → scatola,
-       plastic prefix → sacchetto.
-    4. Return canonical formatted codes like "PAP21" (no space, preserve digits
-       as they appear — e.g. "07" not "7").
+    Strategy — line-cluster approach:
+    1. Scan lines for those that are exclusively a known material prefix
+       (e.g. a line containing only "PAP" or "CPE" after stripping whitespace).
+    2. For each such prefix line, look at the immediately following 2 lines
+       for a token that is 1-2 digits only.  If found, pair them.
+       The digit search is confined to "pure digit" lines to avoid grabbing
+       EAN codes, lot numbers, or other numeric context.
+    3. Additionally detect "joined" forms such as "PAP21" or "CPE07" that OCR
+       may produce when the label and digit are rendered in a single text block.
+    4. Assign by material type:
+       - PAP, FR  → codice_smaltimento_scatola (PAP preferred over FR).
+       - CPE, LDPE, HDPE, PE, PP, PS, PET → codice_smaltimento_sacchetto.
+       - A third plastic code, when present alongside a sacchetto code →
+         codice_smaltimento_doypack (conservative: only set for 3+ codes).
+    5. Populate ``simboli_materiali_smaltimento`` with ALL found codes joined
+       by " / " in the order they appear in the OCR text.
 
-    Prefers PAP over FR for scatola because PAP is the primary packaging code
-    used by this brand; FR is a secondary/alternative paper code and should
-    only fill scatola when PAP is absent.
+    Returns a dict with any subset of:
+        codice_smaltimento_scatola, codice_smaltimento_sacchetto,
+        codice_smaltimento_doypack, simboli_materiali_smaltimento
+    populated as ExtractedField envelopes.  Confidence is 0.7 for all
+    parser-extracted disposal codes (high enough to beat a VLM response
+    lacking digits; low enough to yield to a confident VLM match).
     """
-    # Ordered preference for paper prefixes: PAP binds first, FR is fallback.
-    _PAPER_PREFIX_RANK: dict[str, int] = {"PAP": 0, "FR": 1}
-
-    # All known prefixes to scan for.
+    _CONF = 0.7
+    _PAPER_PREFIX_RANK: dict[str, int] = {"PAP": 0, "FR": 1, "C/PAP": 2}
     all_known_prefixes: frozenset[str] = _PAPER_PREFIXES | _PLASTIC_PREFIXES
 
-    # Window size (chars) after each prefix occurrence in which to look for digits.
-    # Tight: only accept digits immediately adjacent to the prefix (e.g. "PAP21"
-    # joined, or "PAP\n21" with single newline). RapidOCR on these packaging
-    # PDFs rarely captures the small disposal-code digits at all — so when the
-    # prefix appears alone we MUST NOT scan further and grab unrelated numbers
-    # (lot, EAN). Conservative: digits must be within 5 chars of the prefix end.
-    _WINDOW = 5
+    # Pre-build a fast lookup set (uppercase) for line-exact prefix matching.
+    _prefix_upper: frozenset[str] = frozenset(p.upper() for p in all_known_prefixes)
 
-    candidates: list[tuple[str, str, int]] = []  # (prefix, formatted_code, rank)
-
-    # Match prefix either as a standalone word (\b...\b) OR immediately followed by
-    # digits (e.g. "PAP21" joined by OCR).  The two alternatives are ordered so
-    # the joined form is tried first (longer match wins).
-    all_prefixes_sorted = sorted(all_known_prefixes, key=len, reverse=True)
-    prefix_re = re.compile(
-        r"(?<![A-Za-z])("
-        + "|".join(re.escape(p) for p in all_prefixes_sorted)
-        + r")(?:\b|(?=\d))",
+    # Regex: joined form "PAP21", "CPE07", "C/PAP21" — prefix immediately
+    # followed by 1-2 digits with no whitespace between them.
+    _joined_re = re.compile(
+        r"(?<![A-Za-z/])("
+        + "|".join(re.escape(p) for p in sorted(all_known_prefixes, key=len, reverse=True))
+        + r")(\d{1,2})(?!\d)",
         re.IGNORECASE,
     )
-    digit_re = re.compile(r"(\d{1,2})(?!\d)")
+    # Regex: standalone digit line — entire stripped line is 1-2 digits.
+    _pure_digit_re = re.compile(r"^\s*(\d{1,2})\s*$")
 
-    # Regex for normalising common OCR artifact: isolated "O" or "o" that should
-    # be digit "0".  We only substitute when the O is surrounded by digits or
-    # positioned at the start of a numeric token, e.g. "O7" → "07".
-    _ocr_o_to_zero = re.compile(r"\bO(\d)\b", re.IGNORECASE)
+    lines = text.splitlines()
+    # Ordered list of (prefix_upper, digit_str_or_None) found in scan order.
+    raw_codes: list[tuple[str, str | None]] = []
 
-    for m_prefix in prefix_re.finditer(full_text):
-        prefix = m_prefix.group(1).upper()
-        # Look in the window after the prefix for the first 1-2-digit number.
-        window_start = m_prefix.end()
-        window_end = window_start + _WINDOW
-        window_text = full_text[window_start:window_end]
+    # --- Pass 1: joined forms anywhere in the text (e.g. "PAP21" in one OCR block).
+    seen_joins: set[str] = set()
+    for m in _joined_re.finditer(text):
+        prefix = m.group(1).upper()
+        digit_str = m.group(2)
+        key = f"{prefix}{digit_str}"
+        if key not in seen_joins:
+            seen_joins.add(key)
+            raw_codes.append((prefix, digit_str))
 
-        # Normalise OCR O/o → 0 before extracting digits.
-        window_text = _ocr_o_to_zero.sub(r"0\1", window_text)
+    # --- Pass 2: line-by-line cluster scan for split prefix / digit pairs.
+    # Only run when pass 1 did not already produce a code for this prefix.
+    joined_prefixes: set[str] = {pfx for pfx, _ in raw_codes}
+    for i, line in enumerate(lines):
+        stripped = line.strip().upper()
+        if stripped not in _prefix_upper:
+            continue
+        prefix = stripped
+        if prefix in joined_prefixes:
+            continue  # already have a paired code from pass 1
 
-        m_digit = digit_re.search(window_text)
-        if m_digit is None:
-            continue  # no digit in window — skip
+        # Look ahead up to 2 lines for a pure-digit line.
+        digit_str: str | None = None
+        for lookahead in range(1, 3):
+            if i + lookahead >= len(lines):
+                break
+            m_digit = _pure_digit_re.match(lines[i + lookahead])
+            if m_digit:
+                digit_str = m_digit.group(1)
+                break
 
-        digit_str = m_digit.group(1)
-        formatted = f"{prefix}{digit_str}"  # e.g. "PAP21", "CPE07"
-        rank = _PAPER_PREFIX_RANK.get(prefix, 99)
-        candidates.append((prefix, formatted, rank))
+        raw_codes.append((prefix, digit_str))
 
-    # Select the best paper candidate (lowest rank = highest preference).
-    paper_candidates = sorted(
-        [(rank, fmt) for (pfx, fmt, rank) in candidates if pfx in _PAPER_PREFIXES],
-        key=lambda t: t[0],
-    )
-    plastic_candidates = [
-        fmt for (pfx, fmt, _rank) in candidates if pfx in _PLASTIC_PREFIXES
-    ]
+    if not raw_codes:
+        return {}
 
-    result: dict[str, str] = {}
-    if paper_candidates:
-        result["codice_smaltimento_scatola"] = paper_candidates[0][1]
-    if plastic_candidates:
-        result["codice_smaltimento_sacchetto"] = plastic_candidates[0]
+    # Canonicalise: letters + 2-digit zero-padded number.
+    # If digit is absent, the code value stays None (no guessing).
+    canonical_codes: list[tuple[str, str | None]] = []
+    for prefix, digit_str in raw_codes:
+        if digit_str is not None:
+            formatted: str | None = f"{prefix}{int(digit_str):02d}"
+        else:
+            formatted = None
+        canonical_codes.append((prefix, formatted))
+
+    # --- Assignment ---
+    scatola_candidates: list[tuple[int, str]] = []   # (rank, formatted)
+    sacchetto_candidates: list[str] = []
+    extra_plastic_candidates: list[str] = []
+
+    for prefix, formatted in canonical_codes:
+        if formatted is None:
+            continue  # only assign fields when we have an actual code
+        if prefix in _PAPER_PREFIXES:
+            rank = _PAPER_PREFIX_RANK.get(prefix, 99)
+            scatola_candidates.append((rank, formatted))
+        elif prefix in _PLASTIC_PREFIXES:
+            sacchetto_candidates.append(formatted)
+
+    scatola_candidates.sort(key=lambda t: t[0])
+
+    result: dict[str, ExtractedField] = {}
+    if scatola_candidates:
+        result["codice_smaltimento_scatola"] = ExtractedField(
+            value=scatola_candidates[0][1],
+            confidence=_CONF,
+            evidence="disposal-code cluster in OCR text",
+        )
+    if sacchetto_candidates:
+        result["codice_smaltimento_sacchetto"] = ExtractedField(
+            value=sacchetto_candidates[0],
+            confidence=_CONF,
+            evidence="disposal-code cluster in OCR text",
+        )
+        # Third code only when there is a clear second plastic and 3+ total codes.
+        if len(sacchetto_candidates) >= 2 and len(canonical_codes) >= 3:
+            result["codice_smaltimento_doypack"] = ExtractedField(
+                value=sacchetto_candidates[1],
+                confidence=_CONF,
+                evidence="disposal-code cluster in OCR text (third code)",
+            )
+
+    # simboli_materiali_smaltimento: all codes with known formatted values,
+    # in scan order, joined by " / ".
+    all_formatted = [fmt for _, fmt in canonical_codes if fmt is not None]
+    # Deduplicate while preserving order.
+    seen_fmts: set[str] = set()
+    ordered_fmts: list[str] = []
+    for fmt in all_formatted:
+        if fmt not in seen_fmts:
+            seen_fmts.add(fmt)
+            ordered_fmts.append(fmt)
+    if ordered_fmts:
+        result["simboli_materiali_smaltimento"] = ExtractedField(
+            value=" / ".join(ordered_fmts),
+            confidence=_CONF,
+            evidence="disposal-code cluster in OCR text",
+        )
 
     return result
+
+
+def _extract_disposal_codes_from_text(text: str) -> dict[str, str]:
+    """Thin wrapper kept for backward compatibility with ``_FIELD_PATTERNS`` consumers.
+
+    Delegates to ``_extract_disposal_codes_from_ocr`` and strips the
+    ``ExtractedField`` envelope, returning plain ``str`` values keyed by
+    field name.  Only ``codice_smaltimento_scatola`` and
+    ``codice_smaltimento_sacchetto`` are exposed (the wrapper predates
+    the doypack / simboli fields).
+    """
+    ocr_result = _extract_disposal_codes_from_ocr(text)
+    return {
+        k: v.value
+        for k, v in ocr_result.items()
+        if k in ("codice_smaltimento_scatola", "codice_smaltimento_sacchetto")
+        and v.value is not None
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -615,10 +698,12 @@ def extract_text_fields(pdf_path: Path, *, source: str = "ocr") -> PackData:
     # Disposal codes
     # ------------------------------------------------------------------
     if source == "ocr":
-        disposal_map = _extract_disposal_codes_from_text(full_text)
+        disposal_map = _extract_disposal_codes_from_ocr(full_text)
+        for field_name, extracted_field in disposal_map.items():
+            current: ExtractedField = getattr(pack, field_name, ExtractedField())
+            if current.confidence < extracted_field.confidence:
+                setattr(pack, field_name, extracted_field)
         if disposal_map:
-            for field_name, code_value in disposal_map.items():
-                setattr(pack, field_name, ExtractedField(value=code_value, confidence=0.85))
             fields_found += 1
     else:
         # pdfplumber path: disposal_codes was populated above.

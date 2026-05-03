@@ -8,7 +8,7 @@ automatically skipped when no sample PDFs are present in samples/.
 import pytest
 from pathlib import Path
 
-from src.parsing import parse_filename, extract_text_fields
+from src.parsing import parse_filename, extract_text_fields, _extract_disposal_codes_from_ocr
 
 
 # ---------------------------------------------------------------------------
@@ -113,3 +113,77 @@ def test_extract_text_fields_dimensioni_is_product_format(sample_pdf_path: Path)
         assert "cm" in result.dimensioni.value
         assert "Ø" in result.dimensioni.value
         assert result.dimensioni.confidence > 0.0
+
+
+# ---------------------------------------------------------------------------
+# _extract_disposal_codes_from_ocr — pure function tests (no I/O)
+# ---------------------------------------------------------------------------
+
+def test_disposal_codes_joined_form() -> None:
+    """Joined forms like 'PAP21' and 'CPE07' in one OCR block are extracted correctly."""
+    text = "some text\nPAP21\nCPE07\nmore text"
+    result = _extract_disposal_codes_from_ocr(text)
+    assert result["codice_smaltimento_scatola"].value == "PAP21"
+    assert result["codice_smaltimento_sacchetto"].value == "CPE07"
+    assert result["simboli_materiali_smaltimento"].value == "PAP21 / CPE07"
+
+
+def test_disposal_codes_digit_on_next_line() -> None:
+    """Prefix on one line and digit on the next line are paired correctly."""
+    text = "some text\nPAP\n21\nCPE\n7\nmore text"
+    result = _extract_disposal_codes_from_ocr(text)
+    assert result["codice_smaltimento_scatola"].value == "PAP21"
+    assert result["codice_smaltimento_sacchetto"].value == "CPE07"
+
+
+def test_disposal_codes_pap_preferred_over_fr_for_scatola() -> None:
+    """PAP ranks higher than FR; even if FR comes first, PAP wins scatola."""
+    text = "FR\n20\nPAP\n21\n"
+    result = _extract_disposal_codes_from_ocr(text)
+    assert result["codice_smaltimento_scatola"].value == "PAP21"
+
+
+def test_disposal_codes_digit_zero_padded() -> None:
+    """Single-digit codes are zero-padded to two digits: '7' → '07'."""
+    text = "CPE\n7\n"
+    result = _extract_disposal_codes_from_ocr(text)
+    assert result["codice_smaltimento_sacchetto"].value == "CPE07"
+
+
+def test_disposal_codes_no_digits_returns_empty() -> None:
+    """Prefix with no adjacent digits produces no output (no guessing)."""
+    text = "some text\nPAP\nCPE\nsome other text far away 21\n"
+    result = _extract_disposal_codes_from_ocr(text)
+    # PAP has no adjacent digit line; '21' appears on a later non-adjacent line
+    assert result.get("codice_smaltimento_scatola") is None
+    assert result.get("codice_smaltimento_sacchetto") is None
+
+
+def test_disposal_codes_multi_digit_line_not_paired() -> None:
+    """Lines with 3+ digits (e.g. EAN prefix) are NOT treated as code digits."""
+    text = "FR\n0420\nPAP\n21\n"
+    result = _extract_disposal_codes_from_ocr(text)
+    # '0420' has 4 digits — should not pair with FR; PAP21 should still be found
+    scatola = result.get("codice_smaltimento_scatola")
+    assert scatola is not None and scatola.value == "PAP21"
+
+
+def test_disposal_codes_confidence_is_0_7() -> None:
+    """Parser-extracted disposal codes carry confidence=0.7."""
+    text = "PAP21\nCPE07\n"
+    result = _extract_disposal_codes_from_ocr(text)
+    assert result["codice_smaltimento_scatola"].confidence == 0.7
+    assert result["codice_smaltimento_sacchetto"].confidence == 0.7
+
+
+def test_disposal_codes_empty_text_returns_empty() -> None:
+    """Empty input returns empty dict."""
+    result = _extract_disposal_codes_from_ocr("")
+    assert result == {}
+
+
+def test_disposal_codes_simboli_join_order() -> None:
+    """simboli_materiali_smaltimento lists codes in scan order, separated by ' / '."""
+    text = "PAP21\nCPE07\n"
+    result = _extract_disposal_codes_from_ocr(text)
+    assert result["simboli_materiali_smaltimento"].value == "PAP21 / CPE07"

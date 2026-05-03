@@ -62,14 +62,25 @@ each one as a separate observation.
       lotto.value                  = "N/A"
   Never put the same lot number into both fields.
 
-- Disposal codes (codice_smaltimento_*): the small numeric suffix after the material letters
-  (e.g. "21" in "PAP 21", "07" in "CPE 7") is critical. Read both the letter prefix AND the
-  digits — do NOT return just the letter prefix. If the digits are unreadable, return only the
-  letters with low confidence and explain in evidence.
+- Disposal codes (codice_smaltimento_*) — IMPORTANT visual pattern:
+  Each code is a small glyph composed of TWO parts:
+    1. A triangle (the recycling Möbius loop) containing a SINGLE OR DOUBLE DIGIT inside it.
+       Examples: "7", "21", "20".
+    2. A short TEXT LABEL printed below the triangle, indicating the material type.
+       Examples: "PAP", "CPE", "FR", "LDPE", "HDPE", "PET".
+  The full code is the letters from the label concatenated with the digit from the triangle.
+  ALWAYS zero-pad the digit to 2 places when returning the value.
+  Examples:
+    triangle "7" + label "CPE"  →  return "CPE07"
+    triangle "21" + label "PAP" →  return "PAP21"
+    triangle "20" + label "FR"  →  return "FR20"
+  If you can read the letters but the digit is genuinely unreadable, return the letters only
+  with low confidence and explain in evidence. NEVER guess a digit.
 
-- simboli_materiali_smaltimento: list every recycling triangle visible on the pack with its full
-  code, separated by " / " in printed order (e.g. "PAP 21 / CPE 7"). Look on the bottom flap and
-  the back panel.
+- simboli_materiali_smaltimento: list every recycling-triangle glyph visible on the pack with
+  its full canonical code (letters + 2-digit zero-padded number), separated by " / " in printed
+  order. Examples: "PAP21 / CPE07", "PAP21 / CPE07 / FR20". Look on the bottom flap and the back
+  panel.
 
 - QR code (qr_code_junker): set present=true if a Junker-style QR code (typically green-and-
   white square or a black square QR labelled with "Junker" or recycling text) is visible.

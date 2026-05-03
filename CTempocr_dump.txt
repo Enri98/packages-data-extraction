@@ -1,0 +1,75 @@
+[32m2026-05-03 01:19:29.987[0m | [1mINFO    [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m104[0m - [1mStarting OCR extraction | path=C:\Users\Enrico\Desktop\PetProjects\secretCase\docsProcess\samples\8055712771306_220x80x45_Thomas Turbato.pdf[0m
+[32m2026-05-03 01:19:30.291[0m | [1mINFO    [0m | [36msrc.ocr[0m:[36m_get_engine[0m:[36m35[0m - [1mLoading RapidOCR engine (cold start ~1.6 s)...[0m
+[32m2026-05-03 01:19:31.532[0m | [1mINFO    [0m | [36msrc.ocr[0m:[36m_get_engine[0m:[36m38[0m - [1mRapidOCR engine ready.[0m
+[32m2026-05-03 01:19:31.584[0m | [34m[1mDEBUG   [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m123[0m - [34m[1mRendering page 1 / 2[0m
+[32m2026-05-03 01:19:55.283[0m | [34m[1mDEBUG   [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m129[0m - [34m[1mPage 1 | chars=1145[0m
+[32m2026-05-03 01:19:55.286[0m | [34m[1mDEBUG   [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m123[0m - [34m[1mRendering page 2 / 2[0m
+[32m2026-05-03 01:20:04.414[0m | [34m[1mDEBUG   [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m129[0m - [34m[1mPage 2 | chars=40[0m
+[32m2026-05-03 01:20:04.414[0m | [1mINFO    [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m134[0m - [1mOCR extraction complete | path=C:\Users\Enrico\Desktop\PetProjects\secretCase\docsProcess\samples\8055712771306_220x80x45_Thomas Turbato.pdf | pages=2 | total_chars=1186[0m
+[32m2026-05-03 01:20:04.432[0m | [1mINFO    [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m104[0m - [1mStarting OCR extraction | path=C:\Users\Enrico\Desktop\PetProjects\secretCase\docsProcess\samples\8055712772860_180x80x50_OSA_Fairy-Handcuffs.pdf[0m
+[32m2026-05-03 01:20:04.485[0m | [34m[1mDEBUG   [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m123[0m - [34m[1mRendering page 1 / 2[0m
+[32m2026-05-03 01:20:29.946[0m | [34m[1mDEBUG   [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m129[0m - [34m[1mPage 1 | chars=995[0m
+[32m2026-05-03 01:20:29.973[0m | [34m[1mDEBUG   [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m123[0m - [34m[1mRendering page 2 / 2[0m
+[32m2026-05-03 01:20:42.434[0m | [34m[1mDEBUG   [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m129[0m - [34m[1mPage 2 | chars=92[0m
+[32m2026-05-03 01:20:42.434[0m | [1mINFO    [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m134[0m - [1mOCR extraction complete | path=C:\Users\Enrico\Desktop\PetProjects\secretCase\docsProcess\samples\8055712772860_180x80x50_OSA_Fairy-Handcuffs.pdf | pages=2 | total_chars=1088[0m
+[32m2026-05-03 01:20:42.452[0m | [1mINFO    [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m104[0m - [1mStarting OCR extraction | path=C:\Users\Enrico\Desktop\PetProjects\secretCase\docsProcess\samples\8055712772907_150x45x180_OSA_Gothic-Love.pdf[0m
+[32m2026-05-03 01:20:42.506[0m | [34m[1mDEBUG   [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m123[0m - [34m[1mRendering page 1 / 2[0m
+[32m2026-05-03 01:21:24.156[0m | [34m[1mDEBUG   [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m129[0m - [34m[1mPage 1 | chars=1114[0m
+[32m2026-05-03 01:21:24.186[0m | [34m[1mDEBUG   [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m123[0m - [34m[1mRendering page 2 / 2[0m
+[32m2026-05-03 01:21:52.568[0m | [34m[1mDEBUG   [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m129[0m - [34m[1mPage 2 | chars=45[0m
+[32m2026-05-03 01:21:52.600[0m | [1mINFO    [0m | [36msrc.ocr[0m:[36mextract_ocr_text[0m:[36m134[0m - [1mOCR extraction complete | path=C:\Users\Enrico\Desktop\PetProjects\secretCase\docsProcess\samples\8055712772907_150x45x180_OSA_Gothic-Love.pdf | pages=2 | total_chars=1160[0m
+=== 8055712771306_220x80x45_Thomas Turbato.pdf ===
+  Line 45: 'Corso C. Colombo 7 - Milano 20144'
+  Line 46: 'P.IVA: IT06396080480'
+  Line 47: 'AI Amarilo'
+  Line 48: 'Envase Plastico'
+  Line 49: 'info@mysecretcase.com'
+  Line 50: 'www.mysecretcase.com'
+  Line 51: 'FR'
+  Line 52: '(岔+'
+  Line 53: 'LOT: 445'
+  Line 54: 'Scansiona il QR CODE'
+  Line 55: "e visualizza I'ETICHETTA"
+  Line 56: 'AMBIENTALE DIGITALE'
+  Line 57: 'Verifica le'
+  Line 58: ' disposizioni del'
+  Line 59: 'tuo Comune.'
+  Line 60: 'PAP'
+  Line 61: 'CPE'
+  Line 62: 'Partial UV printing'
+  Line 63: 'area:'
+  Line 64: 'THOMAS'
+  Line 65: 'TURBATO'
+=== 8055712772860_180x80x50_OSA_Fairy-Handcuffs.pdf ===
+  Line 45: 'Scansiona il QR CODE'
+  Line 46: "e visualizza I'ETICHETTA"
+  Line 47: 'AMBIENTALE DIGITALE'
+  Line 48: 'Verifica le'
+  Line 49: 'disposizioni del'
+  Line 50: 'CPE'
+  Line 51: 'PAP'
+  Line 52: 'tuo comune.'
+  Line 53: 'printing'
+  Line 54: 'Partial UV'
+  Line 55: 'area:'
+  Line 56: 'ANDCUFFS'
+  Line 57: 'Transparent seal on'
+  Line 58: 'both opening side'
+  Line 59: 'Folding carton 400g'
+=== 8055712772907_150x45x180_OSA_Gothic-Love.pdf ===
+  Line 45: '0420'
+  Line 46: 'www.mysecretcase.com'
+  Line 47: 'Al Amarillo'
+  Line 48: 'Al Azul'
+  Line 49: '8"055712"'
+  Line 50: 'Scansiona il QR CODE'
+  Line 51: '1772907'
+  Line 52: 'LOT: 445'
+  Line 53: 'printing'
+  Line 54: 'Partial UV'
+  Line 55: 'area:'
+  Line 56: 'HIC'
+  Line 57: 'GOTI'
+  Line 58: 'VE'
+  Line 59: 'LO1'
+  Line 60: '000'
