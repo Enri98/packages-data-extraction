@@ -1,14 +1,16 @@
 # fustelle-extractor
 
-Pulls 34 structured fields out of product packaging PDFs and writes them as rows
-into a Google Sheet. Italian sex-toy packaging — the printable layout that goes
-to the printer, called a *fustella*. Each PDF carries product text, regulatory
-icons (CE, RAEE, TRIMAN…), QR codes, recycling material codes, and a few
-brand-constant labels.
+Drop a packaging PDF into a Google Drive folder. Within five minutes a
+structured row appears in a Google Sheet — 34 fields, each with a confidence
+score, and rows that need a human eye automatically flagged into a review
+queue.
 
-The pipeline is hybrid by design: deterministic parsing where the data is
-reliable, a VLM (Gemini 2.5 Pro) for visual icons and gap-fill, and a validator
-that reconciles the two with a per-field confidence score.
+The PDFs are *fustelle*: Italian printable layouts for sex-toy packaging.
+Each one carries product text, regulatory icons (CE, RAEE, TRIMAN…), QR
+codes, recycling material codes, and a few brand-constant labels. The
+pipeline is hybrid by design — deterministic parsing where the data is
+reliable, a VLM (Gemini 2.5 Pro) for visual icons and gap-fill, and a
+validator that reconciles the two with per-field confidence scoring.
 
 ## How it runs in production
 
@@ -20,9 +22,9 @@ Apps Script time-driven trigger (every 5 min)
     │  POST /process with OIDC ID token
     ▼
 Cloud Run (private, us-central1)
-    ├─ parsing.py    filename + pdfplumber regex
     ├─ ocr.py        rapidocr (PDFs are vector-with-outlines, so plain
     │                text extraction returns nothing useful)
+    ├─ parsing.py    filename parse + regex over the OCR text
     ├─ vlm.py        Gemini 2.5 Pro on the rendered pages
     ├─ validator.py  cross-check, confidence, derived fields
     └─ sheets.py     write to pack_data, log to run_metadata
@@ -76,8 +78,8 @@ notebooks/      EDA only, not part of the production path
 
 Steady state for ~50 PDFs/month: roughly **$1.50/mo** in Gemini API calls, and
 $0 in Google Cloud (everything fits inside the always-free tier when pinned to
-`us-central1` with `min-instances=0`). A $5/mo budget alert is configured to
-catch any drift.
+`us-central1` with `min-instances=0`). A $5/mo budget alert in Cloud Billing
+is recommended to catch any drift.
 
 ## Documentation
 
