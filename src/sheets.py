@@ -249,10 +249,18 @@ def _pack_to_row(pack: PackData) -> list:
             row.append(CELL_TRUE if attr.present is True else CELL_FALSE)
         elif isinstance(attr, ExtractedField):
             v = attr.value
+            # Trust whatever the VLM returned (a real value, or the literal
+            # string "N/A" when the VLM judges the concept does not apply).
+            # Only fall back when the VLM gave back nothing at all — and then
+            # the default depends on field type:
+            #   - count-like fields default to ❌ ("feature absent")
+            #   - all other string fields default to "N/A" ("not present on pack")
             if v not in (None, ""):
                 row.append(v)
+            elif name in COUNT_LIKE_FIELDS:
+                row.append(CELL_FALSE)
             else:
-                row.append(CELL_FALSE if name in COUNT_LIKE_FIELDS else CELL_NA)
+                row.append(CELL_NA)
         else:
             # Plain str (deterministic constant) — write as-is.
             row.append(attr)

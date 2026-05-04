@@ -1,57 +1,89 @@
 # fustelle-extractor
 
-Extracts structured data from product packaging PDFs ("fustelle") and writes rows to a Google Sheet.
+Pulls 34 structured fields out of product packaging PDFs and writes them as rows
+into a Google Sheet. Italian sex-toy packaging — the printable layout that goes
+to the printer, called a *fustella*. Each PDF carries product text, regulatory
+icons (CE, RAEE, TRIMAN…), QR codes, recycling material codes, and a few
+brand-constant labels.
 
-## Architecture
+The pipeline is hybrid by design: deterministic parsing where the data is
+reliable, a VLM (Gemini 2.5 Pro) for visual icons and gap-fill, and a validator
+that reconciles the two with a per-field confidence score.
+
+## How it runs in production
 
 ```
-Drive upload
-    │
-    ▼ Eventarc (Drive onCreate → Pub/Sub)
-Cloud Run container
-    │
-    ├─ parsing.py   ── pdfplumber text extraction (filename + regex/spatial)
-    ├─ vlm.py       ── Gemini 2.5 Pro (visual symbols, QR code, gap-fill)
-    ├─ validator.py ── merge, cross-check, confidence scoring, TRIMAN rule
-    └─ sheets.py    ── write pack_data / review_queue / run_metadata tabs
+Drive folder
+    │  (PDF dropped here)
+    ▼
+Apps Script time-driven trigger (every 5 min)
+    │  POST /process with OIDC ID token
+    ▼
+Cloud Run (private, us-central1)
+    ├─ parsing.py    filename + pdfplumber regex
+    ├─ ocr.py        rapidocr (PDFs are vector-with-outlines, so plain
+    │                text extraction returns nothing useful)
+    ├─ vlm.py        Gemini 2.5 Pro on the rendered pages
+    ├─ validator.py  cross-check, confidence, derived fields
+    └─ sheets.py     write to pack_data, log to run_metadata
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for design decisions and trade-offs.
+A note on the trigger: Eventarc would be the obvious choice, but it doesn't
+support personal Google Drive (you'd need Workspace Enterprise + Audit Logs).
+Apps Script polling is the workaround. See `ARCHITECTURE.md` for the full
+reasoning.
 
-## Quick start
+## Quick start (local)
 
 ```bash
 uv sync
-cp .env.example .env   # fill in credentials
-source .venv/bin/activate
+cp .env.example .env       # fill in GEMINI_API_KEY, sheet id, SA path
+source .venv/bin/activate  # PowerShell: .venv\Scripts\Activate.ps1
 python -m src.pipeline path/to/pack.pdf
 uv run pytest
 ```
 
-## Field schema
+You can run the pipeline against a local PDF without ever touching Cloud Run —
+the same `run_single` function is what the server calls.
 
-34 output fields in Italian, matching the Google Sheet header. Tagged by extraction strategy:
+## The 34 fields
 
-| Strategy | Description |
-|---|---|
-| `deterministic` | Filename or brand constant — confidence 1.0 |
-| `text_in_pdf` | pdfplumber regex / spatial extraction |
-| `visual` | Gemini 2.5 Pro VLM |
-| `derived` | Computed from other fields |
+Italian names, declared in `src/schemas/pack.py` in Sheet column order. Each
+field is tagged by extraction strategy:
 
-Full schema: [`src/schemas/pack.py`](src/schemas/pack.py)
+| Tag | What it means | Example |
+|---|---|---|
+| `deterministic` | Filename or brand constant. Confidence 1.0 by definition. | `nome_del_fabbricante`, `dimensioni` |
+| `text_in_pdf`   | Recovered from OCR + regex. | `materiale`, `capacita_batteria_e_tensione_nominale` |
+| `visual`        | VLM only — icons, QR codes, small disposal-code digits. | `simbolo_ce`, `simbolo_raee`, `qr_code_junker` |
+| `derived`       | Computed from other fields. | `contenuto_triman_corretto` |
 
-## Project structure
+The Pydantic model is the source of truth — the Sheet writer derives column
+order from it, so adding a field in one place updates both.
+
+## Project layout
 
 ```
-src/            one file = one responsibility
-prompts/        versioned extraction prompts, loaded at runtime
-tests/          pytest suite; VLM tests use cassettes (no live API in CI)
-infra/          Dockerfile, cloudbuild.yaml, GCP runbook
-samples/        sanitized PDFs for tests (real PDFs are gitignored)
-notebooks/      exploratory analysis, not part of the production path
+src/            one module = one responsibility
+prompts/        versioned extraction prompts, loaded from disk at runtime
+tests/          pytest. VLM tests use cassettes, never live API in CI.
+infra/          Dockerfile, cloudbuild.yaml, GCP runbook, Apps Script source
+samples/        sanitized PDFs for repro (real PDFs are gitignored)
+notebooks/      EDA only, not part of the production path
 ```
 
-## Deployment
+## Costs
 
-See [DEPLOYMENT.md](DEPLOYMENT.md).
+Steady state for ~50 PDFs/month: roughly **$1.50/mo** in Gemini API calls, and
+$0 in Google Cloud (everything fits inside the always-free tier when pinned to
+`us-central1` with `min-instances=0`). A $5/mo budget alert is configured to
+catch any drift.
+
+## Documentation
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — design decisions, the hybrid extraction
+  model, why Apps Script instead of Eventarc, the confidence model.
+- [`DEPLOYMENT.md`](DEPLOYMENT.md) — operator runbook: deploy, roll back,
+  rotate the Gemini key, rerun a failed pack.
+- [`infra/gcp-setup.md`](infra/gcp-setup.md) — first-time GCP setup, step by
+  step, written so you can paste-and-run.
