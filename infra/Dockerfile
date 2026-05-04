@@ -1,8 +1,13 @@
 FROM python:3.11-slim
 
 # curl is needed by HEALTHCHECK; ca-certificates for HTTPS to Drive/Sheets/Gemini.
+# libxcb1 / libglib2.0-0 / libgomp1 are runtime deps dlopen'd by
+# opencv-python-headless and onnxruntime — slim base image lacks them and
+# the OCR engine crashes on first import without them.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get install -y --no-install-recommends \
+        curl ca-certificates \
+        libxcb1 libglib2.0-0 libgomp1 libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

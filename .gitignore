@@ -1,6 +1,7 @@
 # Claude Code context
 .claude/
 CLAUDE.md
+gcp-setup.md
 
 # Environment and secrets
 .env
@@ -79,6 +80,8 @@ logs/
 output/
 out/
 tmp/
+ignore/
 .gitnexus
 scripts/ocr_renders/
 eval_vlm_cache/
+

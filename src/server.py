@@ -237,18 +237,20 @@ async def process(request: Request) -> dict:
     creds.refresh(GoogleRequest())
 
     download_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-    tmp_path: Path | None = None
+    # Preserve the original filename: the parser extracts EAN/dimensions/product
+    # name from the basename, so a tempfile-style "tmpXXXX.pdf" name would crash
+    # filename_parse. Write into a fresh temp directory under the real name.
+    tmp_dir = Path(tempfile.mkdtemp(prefix="docsproc-"))
+    tmp_path = tmp_dir / file_name
 
     try:
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-            with httpx.Client() as client:
-                resp = client.get(
-                    download_url,
-                    headers={"Authorization": f"Bearer {creds.token}"},
-                )
-                resp.raise_for_status()
-                tmp.write(resp.content)
+        with httpx.Client() as client:
+            resp = client.get(
+                download_url,
+                headers={"Authorization": f"Bearer {creds.token}"},
+            )
+            resp.raise_for_status()
+            tmp_path.write_bytes(resp.content)
 
         try:
             pack = run_single(tmp_path)
@@ -263,5 +265,7 @@ async def process(request: Request) -> dict:
             return {"status": "accepted", "ean": None}
 
     finally:
-        if tmp_path is not None and tmp_path.exists():
+        if tmp_path.exists():
             tmp_path.unlink()
+        if tmp_dir.exists():
+            tmp_dir.rmdir()
