@@ -1,7 +1,6 @@
 # Claude Code context
 .claude/
 CLAUDE.md
-gcp-setup.md
 
 # Environment and secrets
 .env

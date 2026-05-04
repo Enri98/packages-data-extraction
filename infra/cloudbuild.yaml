@@ -45,7 +45,7 @@ steps:
       - --platform=managed
       - --no-allow-unauthenticated   # Apps Script OIDC; Cloud Run validates ID token
       - --service-account=docsprocess-runtime@$PROJECT_ID.iam.gserviceaccount.com
-      - --memory=1Gi
+      - --memory=2Gi
       - --cpu=1
       - --min-instances=0
       - --max-instances=1         # serial processing; no concurrent writes to Sheet
