@@ -218,4 +218,4 @@ this section and confirm the scope creep is intentional.
 | Prompts (versioned) | `prompts/extraction_v1.txt` |
 | Apps Script trigger | `infra/apps-script/Code.gs` |
 | Cloud Build pipeline | `infra/cloudbuild.yaml` |
-| First-time GCP setup | `infra/gcp-setup.md` |
+| WIF setup for GitHub Actions deploy | `infra/gcp-setup-cicd.md` |

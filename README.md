@@ -85,5 +85,5 @@ catch any drift.
   model, why Apps Script instead of Eventarc, the confidence model.
 - [`DEPLOYMENT.md`](DEPLOYMENT.md) — operator runbook: deploy, roll back,
   rotate the Gemini key, rerun a failed pack.
-- [`infra/gcp-setup.md`](infra/gcp-setup.md) — first-time GCP setup, step by
-  step, written so you can paste-and-run.
+- [`infra/gcp-setup-cicd.md`](infra/gcp-setup-cicd.md) — Workload Identity
+  Federation setup for the GitHub Actions deploy workflow.

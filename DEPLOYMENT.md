@@ -1,9 +1,8 @@
 # Deployment
 
-Operator runbook. If you're setting up the project from scratch on a new GCP
-project, start with [`infra/gcp-setup.md`](infra/gcp-setup.md) first — that
-walks through APIs, service accounts, secrets, and the first deploy. This file
-covers what to do once the system is already running.
+Operator runbook for an already-running deployment. For the GitHub Actions
+deploy workflow setup (Workload Identity Federation), see
+[`infra/gcp-setup-cicd.md`](infra/gcp-setup-cicd.md).
 
 ## Before you touch anything in production
 
