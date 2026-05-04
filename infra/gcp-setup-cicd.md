@@ -112,6 +112,45 @@ gcloud projects add-iam-policy-binding $env:PROJECT_ID `
 gcloud projects add-iam-policy-binding $env:PROJECT_ID `
     --member="serviceAccount:$env:DEPLOYER_SA" `
     --role="roles/logging.viewer"
+
+# Service Usage Consumer (required by `gcloud builds submit` to call the
+# Cloud Build API on this project — without it the source-upload step
+# returns "user is forbidden from accessing the bucket").
+gcloud projects add-iam-policy-binding $env:PROJECT_ID `
+    --member="serviceAccount:$env:DEPLOYER_SA" `
+    --role="roles/serviceusage.serviceUsageConsumer"
+
+# Storage Admin (gcloud builds submit tarballs the source into the
+# {PROJECT_ID}_cloudbuild GCS bucket; the SA must be able to write there).
+gcloud projects add-iam-policy-binding $env:PROJECT_ID `
+    --member="serviceAccount:$env:DEPLOYER_SA" `
+    --role="roles/storage.admin"
+```
+
+## 5b. Allow the deployer to act as the Cloud Build runtime SA
+
+`gcloud builds submit` doesn't run as the deployer SA — Cloud Build itself
+executes as a separate service account (the Compute Engine default SA on
+modern GCP projects, the legacy `cloudbuild.gserviceaccount.com` on older
+ones). The deployer needs `roles/iam.serviceAccountUser` on whichever one
+your project uses, or build submission fails with `permission_denied: caller
+does not have permission to act as service account ...`.
+
+```powershell
+# Modern projects (created after April 2024) — Compute Engine default SA.
+gcloud iam service-accounts add-iam-policy-binding `
+    "$env:PROJECT_NUMBER-compute@developer.gserviceaccount.com" `
+    --project=$env:PROJECT_ID `
+    --role="roles/iam.serviceAccountUser" `
+    --member="serviceAccount:$env:DEPLOYER_SA"
+```
+
+If you see the `permission_denied: ... act as service account` error pointing
+at a numeric ID, look up which SA it is and bind the same role on that one
+instead:
+
+```powershell
+gcloud iam service-accounts list --project=$env:PROJECT_ID --filter="uniqueId:<numeric-id-from-error>"
 ```
 
 ## 6. Allow the deployer to impersonate the runtime SA
