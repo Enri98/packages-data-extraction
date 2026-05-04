@@ -32,7 +32,7 @@ import gspread
 from loguru import logger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from src.schemas.pack import PackData
+from src.schemas.pack import ExtractedField, PackData, PresenceField
 from src.secrets import load_service_account_info
 from src.validator import ValidationResult
 
@@ -40,6 +40,28 @@ from src.validator import ValidationResult
 PACK_DATA_TAB = "pack_data"
 REVIEW_QUEUE_TAB = "review_queue"
 RUN_METADATA_TAB = "run_metadata"
+
+# Cell rendering — match the example row in the deliverable Sheet exactly:
+#   PresenceField True/False    -> "✅" / "❌"
+#   ExtractedField with value   -> the string value
+#   ExtractedField absent (None or empty), in COUNT_LIKE_FIELDS -> "❌"
+#   ExtractedField absent (None or empty), all other string fields -> "N/A"
+CELL_TRUE = "✅"
+CELL_FALSE = "❌"
+CELL_NA = "N/A"
+
+# String-typed fields where absence semantically means "doesn't have this
+# feature" rather than "not applicable / not printed". Per the Fairy-Handcuffs
+# golden fixture: these fields encode absence as the boolean `false`, which
+# the example row renders as ❌.
+COUNT_LIKE_FIELDS: frozenset[str] = frozenset({
+    "n_vibrazioni",
+    "n_velocita",
+    "n_modalita_suzione",
+    "n_modalita_tapping",
+    "n_modalita_rotazione",
+    "codice_smaltimento_doypack",
+})
 
 
 class SheetConfigError(Exception):
@@ -156,40 +178,84 @@ def write_run_metadata(
     )
 
 
-def _row_exists(sheet: gspread.Spreadsheet, tab_name: str, ean: str) -> bool:
-    """Return True if a row with the given EAN already exists in tab_name."""
+def _ean_in_run_metadata_success(
+    spreadsheet: gspread.Spreadsheet, ean: str
+) -> bool:
+    """Return True if run_metadata records a successful run for this EAN.
+
+    `run_metadata` is the source of truth for "have we processed this EAN":
+    each successful pipeline writes a row with filename in column index 1
+    and outcome="success" in column index 2. Filenames always start with
+    `{EAN}_` (deterministic from the upload convention).
+    """
     try:
-        worksheet = sheet.worksheet(tab_name)
+        ws = spreadsheet.worksheet(RUN_METADATA_TAB)
     except gspread.exceptions.WorksheetNotFound:
         return False
 
-    all_values = worksheet.get_all_values()
-    if not all_values:
+    rows = ws.get_all_values()
+    if len(rows) <= 1:  # header only or empty
         return False
 
-    # codice_ean is the first column; skip the header row if present
-    for row in all_values:
-        if row and row[0] == ean:
+    prefix = f"{ean}_"
+    for row in rows[1:]:
+        # Defensive: rows may be shorter than expected if columns were edited.
+        if len(row) >= 3 and row[1].startswith(prefix) and row[2] == "success":
             return True
     return False
+
+
+def _row_exists(sheet: gspread.Spreadsheet, tab_name: str, ean: str) -> bool:
+    """Defense-in-depth dedup before appending to pack_data.
+
+    Delegates to ``_ean_in_run_metadata_success``. The ``tab_name`` parameter
+    is preserved for API compatibility but ignored — run_metadata is the
+    canonical source for "already processed", because EAN is not a column
+    in pack_data (it's the identity key, excluded from _SHEET_FIELDS).
+
+    The earlier check in ``pipeline.run_single`` saves the OCR+Gemini cost on
+    duplicates; this second check catches races where two concurrent pipelines
+    both passed the early check before either wrote run_metadata.
+    """
+    return _ean_in_run_metadata_success(sheet, ean)
+
+
+def has_ean_been_processed(sheet_id: str, ean: str) -> bool:
+    """Public idempotency check. Opens the sheet and consults run_metadata.
+
+    Used by pipeline.run_single to skip the heavy work (OCR + Gemini) when
+    a successful run already exists for this EAN.
+    """
+    client = get_sheet_client()
+    spreadsheet = client.open_by_key(sheet_id)
+    return _ean_in_run_metadata_success(spreadsheet, ean)
 
 
 def _pack_to_row(pack: PackData) -> list:
     """
     Flatten PackData to a list of cell values in Sheet column order.
-    Order is derived from pack.content_fields() which mirrors model_fields.
+
+    Cell mapping (matches the deliverable Sheet's example row exactly):
+    - PresenceField: True -> "✅", False/None -> "❌".
+    - ExtractedField with non-empty value: written as-is.
+    - ExtractedField absent (None or "") in COUNT_LIKE_FIELDS: "❌".
+    - ExtractedField absent (None or "") elsewhere: "N/A".
+    - Plain str (the 4 deterministic manufacturer/importer constants): as-is.
     """
-    fields = pack.content_fields()
     row = []
-    for value in fields.values():
-        if value is None:
-            row.append("")
-        elif value is True:
-            row.append("Sì")
-        elif value is False:
-            row.append("No")
+    for name in pack._SHEET_FIELDS:  # type: ignore[attr-defined]
+        attr = getattr(pack, name)
+        if isinstance(attr, PresenceField):
+            row.append(CELL_TRUE if attr.present is True else CELL_FALSE)
+        elif isinstance(attr, ExtractedField):
+            v = attr.value
+            if v not in (None, ""):
+                row.append(v)
+            else:
+                row.append(CELL_FALSE if name in COUNT_LIKE_FIELDS else CELL_NA)
         else:
-            row.append(value)
+            # Plain str (deterministic constant) — write as-is.
+            row.append(attr)
     return row
 
 
@@ -233,34 +299,32 @@ def _get_or_create_worksheet(
 
 
 def verify_sheet_schema(sheet_id: str) -> None:
-    """Verify that the ``pack_data`` worksheet header matches the Pydantic schema.
+    """Verify that the ``pack_data`` worksheet has the right column count.
+
+    Writes are positional via ``gspread.append_row`` — column order is what
+    matters, not header text. Operators commonly customise headers to a
+    human-readable form (e.g. "Nome del fabbricante" instead of
+    ``nome_del_fabbricante``); we accept that as long as the column *count*
+    matches the schema. A count mismatch means data would land in the wrong
+    columns, so we still raise on that.
 
     Behaviour:
-    - If row 1 is empty: writes the canonical headers (bootstrap path).
-    - If row 1 matches ``PackData._SHEET_FIELDS``: logs success at INFO.
-    - If row 1 mismatches: raises ``SheetConfigError`` — do NOT silently
-      overwrite because existing data rows may be mis-aligned already.
-
-    Args:
-        sheet_id: Google Sheets spreadsheet ID.
-
-    Raises:
-        SheetConfigError: on header mismatch or authentication failure.
+    - If the tab is missing or empty: bootstrap with canonical snake_case headers.
+    - If row 1 has the expected column count: log INFO and return (regardless of header text).
+    - If row 1 has fewer/more columns than the schema: raise ``SheetConfigError``.
     """
     client = get_sheet_client()
     spreadsheet = client.open_by_key(sheet_id)
 
     # _SHEET_FIELDS is a Pydantic v2 PrivateAttr (leading-underscore auto-private).
     # Class access returns a ModelPrivateAttr descriptor, NOT the tuple — so
-    # we MUST instantiate to read the value. (Verified: list(PackData._SHEET_FIELDS)
-    # raises 'ModelPrivateAttr' object is not subscriptable.)
+    # we MUST instantiate to read the value.
     _sentinel = PackData(codice_ean="__verify__")
     expected: list[str] = list(_sentinel._SHEET_FIELDS)  # type: ignore[attr-defined]
 
     try:
         ws = spreadsheet.worksheet(PACK_DATA_TAB)
     except gspread.exceptions.WorksheetNotFound:
-        # Bootstrap: create the tab and write headers.
         ws = spreadsheet.add_worksheet(title=PACK_DATA_TAB, rows=1000, cols=50)
         ws.append_row(expected, value_input_option="USER_ENTERED")
         logger.info(
@@ -272,7 +336,6 @@ def verify_sheet_schema(sheet_id: str) -> None:
 
     all_values = ws.get_all_values()
     if not all_values:
-        # Empty tab — write headers.
         ws.append_row(expected, value_input_option="USER_ENTERED")
         logger.info(
             "Wrote {} header columns to empty '{}' worksheet.",
@@ -282,15 +345,24 @@ def verify_sheet_schema(sheet_id: str) -> None:
         return
 
     actual = all_values[0]
-    if actual == expected:
-        logger.info(
-            "Sheet header verified: '{}' matches schema ({} columns).",
-            PACK_DATA_TAB,
-            len(expected),
-        )
+    if len(actual) == len(expected):
+        if actual == expected:
+            logger.info(
+                "Sheet header verified: '{}' matches schema exactly ({} columns).",
+                PACK_DATA_TAB,
+                len(expected),
+            )
+        else:
+            logger.info(
+                "Sheet header verified: '{}' has expected column count ({}); "
+                "header text differs from schema (custom labels in use, OK).",
+                PACK_DATA_TAB,
+                len(expected),
+            )
         return
 
     raise SheetConfigError(
-        f"Sheet header mismatch on '{PACK_DATA_TAB}': "
-        f"expected {expected}, got {actual}"
+        f"Sheet column count mismatch on '{PACK_DATA_TAB}': "
+        f"expected {len(expected)} columns, got {len(actual)}. "
+        f"Schema: {expected}. Sheet row 1: {actual}"
     )

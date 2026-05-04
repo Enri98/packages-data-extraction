@@ -50,7 +50,7 @@ steps:
       - --min-instances=0
       - --max-instances=1         # serial processing; no concurrent writes to Sheet
       - --concurrency=1           # one request at a time per instance
-      - --timeout=120s
+      - --timeout=300s
       - --update-env-vars=GEMINI_LIVE=1,LOG_LEVEL=INFO,GOOGLE_SHEET_ID=${_SHEET_ID},GOOGLE_DRIVE_FOLDER_ID=${_FOLDER_ID}
       - --update-secrets=GEMINI_API_KEY=GEMINI_API_KEY:latest,GOOGLE_SERVICE_ACCOUNT_JSON=GOOGLE_SERVICE_ACCOUNT_JSON:latest
 

@@ -35,7 +35,7 @@ from loguru import logger
 from src.ocr import extract_ocr_text
 from src.parsing import extract_text_fields, parse_filename
 from src.schemas.pack import PackData
-from src.sheets import write_pack, write_run_metadata
+from src.sheets import has_ean_been_processed, write_pack, write_run_metadata
 from src.validator import validate
 from src.vlm import extract_visual_fields
 
@@ -55,6 +55,17 @@ def run_single(pdf_path: Path) -> PackData:
         ean, _, _ = parse_filename(pdf_path.name)
     except ValueError as exc:
         raise PipelineError(pdf_path.name, "filename_parse", exc) from exc
+
+    # Idempotency: skip the heavy work (OCR + Gemini, ~$0.05) when a previous
+    # run already wrote a successful row for this EAN. Critical when overlapping
+    # Apps Script triggers POST the same file before the first request finishes.
+    # Only enforced when sheet_id is set (skipped in CLI/CI dry-runs).
+    if sheet_id and has_ean_been_processed(sheet_id, ean):
+        logger.info(
+            "Skipping pipeline | ean={} | reason=already in pack_data via run_metadata",
+            ean,
+        )
+        return PackData(codice_ean=ean)
 
     logger.info("Pipeline start | ean={} | file={}", ean, pdf_path.name)
 
