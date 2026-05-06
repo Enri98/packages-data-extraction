@@ -29,8 +29,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from src.secrets import get_secret
-
 from google import genai
 from google.genai import types
 from loguru import logger
@@ -45,7 +43,7 @@ from tenacity import (
 
 from src.parsing import parse_filename
 from src.schemas.pack import ExtractedField, PackData, PresenceField
-
+from src.secrets import get_secret
 
 PROMPT_PATH = Path("prompts/extraction_v1.txt")
 MODEL_NAME = "gemini-2.5-pro"
@@ -109,8 +107,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "qr_code_junker": "Junker QR code present on back panel",
     # visual / extracted
     "simboli_materiali_smaltimento": (
-        "Text description of recycling triangle symbols and their codes "
-        "(e.g. 'PAP21 / CPE07')"
+        "Text description of recycling triangle symbols and their codes (e.g. 'PAP21 / CPE07')"
     ),
     # text_in_pdf — VLM verifies parser output
     "tipo_o_modello": "Product type or model code",
@@ -484,9 +481,7 @@ def _require_live_gate() -> None:
             "This guard exists to prevent accidental spend during development."
         )
     if not os.environ.get("GEMINI_API_KEY"):
-        raise VLMNotAuthorizedError(
-            "GEMINI_LIVE=1 is set but GEMINI_API_KEY is empty."
-        )
+        raise VLMNotAuthorizedError("GEMINI_LIVE=1 is set but GEMINI_API_KEY is empty.")
 
 
 __all__ = [

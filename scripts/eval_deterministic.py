@@ -9,12 +9,12 @@ _REPO_ROOT = Path(__file__).parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from tests._eval_utils import PDF_TO_GOLDEN, Outcome, _SAMPLES_DIR, evaluate_pdf  # noqa: E402
-
+from tests._eval_utils import _SAMPLES_DIR, PDF_TO_GOLDEN, Outcome, evaluate_pdf  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
+
 
 def _divider(width: int = 100) -> str:
     return "-" * width
@@ -51,7 +51,11 @@ def _print_per_pdf(report: dict) -> None:
 
 def _print_aggregate(all_reports: list[dict]) -> None:
     total: dict[str, int] = {
-        "correct": 0, "wrong": 0, "missing": 0, "unexpected": 0, "not_in_schema": 0
+        "correct": 0,
+        "wrong": 0,
+        "missing": 0,
+        "unexpected": 0,
+        "not_in_schema": 0,
     }
     per_field: dict[str, dict[str, int]] = {}
 
@@ -98,6 +102,7 @@ def _print_aggregate(all_reports: list[dict]) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     """Run eval on all sample PDFs and print the report."""
     all_reports: list[dict] = []
@@ -114,7 +119,7 @@ def main() -> None:
         _print_per_pdf(report)
 
     if missing_pdfs:
-        print(f"\n[WARN] The following sample PDFs were not found and were skipped:")
+        print("\n[WARN] The following sample PDFs were not found and were skipped:")
         for name in missing_pdfs:
             print(f"  - {name}")
 

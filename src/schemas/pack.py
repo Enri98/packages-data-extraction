@@ -13,25 +13,24 @@ Field declaration order = Google Sheet column order (columns 1–34).
 identity key but is NOT a Sheet column.
 """
 
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
 
 
-class ExtractionStrategy(str, Enum):
+class ExtractionStrategy(StrEnum):
     DETERMINISTIC = "deterministic"  # filename segment or hardcoded constant
-    TEXT_IN_PDF = "text_in_pdf"      # pdfplumber regex / spatial rule
-    VISUAL = "visual"                # VLM (Gemini 2.5 Pro)
-    DERIVED = "derived"              # computed from other fields
+    TEXT_IN_PDF = "text_in_pdf"  # pdfplumber regex / spatial rule
+    VISUAL = "visual"  # VLM (Gemini 2.5 Pro)
+    DERIVED = "derived"  # computed from other fields
 
 
 class ExtractedField(BaseModel):
     """Confidence envelope for text-extracted and VLM-extracted string fields."""
 
-    value: Optional[str] = None
+    value: str | None = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-    evidence: Optional[str] = None  # source text snippet or bounding-box description
+    evidence: str | None = None  # source text snippet or bounding-box description
 
     model_config = {"frozen": False}
 
@@ -39,9 +38,9 @@ class ExtractedField(BaseModel):
 class PresenceField(BaseModel):
     """Confidence envelope for binary symbol-presence fields (CE, RAEE, etc.)."""
 
-    present: Optional[bool] = None
+    present: bool | None = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-    evidence: Optional[str] = None
+    evidence: str | None = None
 
     model_config = {"frozen": False}
 
@@ -49,6 +48,7 @@ class PresenceField(BaseModel):
 # ---------------------------------------------------------------------------
 # Main schema — 34 sheet fields in Sheet column order, then identity field.
 # ---------------------------------------------------------------------------
+
 
 class PackData(BaseModel):
     """
@@ -163,7 +163,9 @@ class PackData(BaseModel):
                 parts.append(f"missing from _SHEET_FIELDS: {sorted(missing_from_tuple)}")
             if extra_in_tuple:
                 parts.append(f"extra in _SHEET_FIELDS (not in model): {sorted(extra_in_tuple)}")
-            raise ValueError("_SHEET_FIELDS is out of sync with PackData fields — " + "; ".join(parts))
+            raise ValueError(
+                "_SHEET_FIELDS is out of sync with PackData fields — " + "; ".join(parts)
+            )
         return self
 
     # Sheet column names in declaration order (excludes codice_ean).

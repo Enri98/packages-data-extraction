@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -33,6 +33,7 @@ _THOMAS_CACHE = _CACHE_DIR / "8055712771306_220x80x45_Thomas Turbato__vlm-image+
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_cached_vlm(cache_path: Path) -> PackData:
     """Parse the eval_vlm_cache JSON into a PackData instance."""
     with cache_path.open(encoding="utf-8") as fh:
@@ -43,6 +44,7 @@ def _load_cached_vlm(cache_path: Path) -> PackData:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def thomas_pdf() -> Path:
@@ -61,6 +63,7 @@ def thomas_vlm_pack() -> PackData:
 # ---------------------------------------------------------------------------
 # Mock builders
 # ---------------------------------------------------------------------------
+
 
 def _make_mock_spreadsheet() -> tuple[MagicMock, dict[str, list]]:
     """
@@ -116,6 +119,7 @@ def _make_mock_spreadsheet() -> tuple[MagicMock, dict[str, list]]:
 # ---------------------------------------------------------------------------
 # Integration test
 # ---------------------------------------------------------------------------
+
 
 class TestPipelineIntegration:
     def test_end_to_end_thomas_turbato(
@@ -190,6 +194,4 @@ class TestPipelineIntegration:
         ]
         assert len(metadata_data_rows) >= 1, "No run_metadata data row was written"
         metadata_row = metadata_data_rows[0]
-        assert metadata_row[2] == "success", (
-            f"Expected outcome='success', got {metadata_row[2]!r}"
-        )
+        assert metadata_row[2] == "success", f"Expected outcome='success', got {metadata_row[2]!r}"

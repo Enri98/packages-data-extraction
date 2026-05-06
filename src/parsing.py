@@ -78,16 +78,22 @@ _VIBRAZIONI_RE = re.compile(r"(\d+\s*(?:vibrazioni|vibration\w*))", re.IGNORECAS
 
 # Waterproofing — try IPX/IPW first; fall back to "Non impermeabile" / "Not waterproof".
 _IMPERMEABILITA_IPX_RE = re.compile(r"(IP[XW]\d+)", re.IGNORECASE)
-_IMPERMEABILITA_NON_RE = re.compile(
-    r"(Non\s+impermeabile|Not\s+waterproof)", re.IGNORECASE
-)
+_IMPERMEABILITA_NON_RE = re.compile(r"(Non\s+impermeabile|Not\s+waterproof)", re.IGNORECASE)
 
 # Charging mode — match only known charging-method keywords that follow "Ricarica".
 # Using an explicit allowlist avoids false positives from "Ricarica energetica",
 # "ricarica" in disposal instructions, or other non-charging context on the packaging.
 _RICARICA_MODES = (
-    "magnetica", "USB", "minijack", "mini-jack", "Type-C", "type-c",
-    "wireless", "induttiva", "micro-USB", "microusb",
+    "magnetica",
+    "USB",
+    "minijack",
+    "mini-jack",
+    "Type-C",
+    "type-c",
+    "wireless",
+    "induttiva",
+    "micro-USB",
+    "microusb",
 )
 _RICARICA_MODES_PATTERN = "|".join(re.escape(m) for m in _RICARICA_MODES)
 # Match "Ricarica <mode>" exactly; no optional trailing word to avoid absorbing
@@ -104,7 +110,15 @@ _PLASTIC_PREFIXES: frozenset[str] = frozenset({"CPE", "PE", "HDPE", "LDPE", "PP"
 
 # Known material token set for materiale extraction (case-insensitive matching).
 _MATERIAL_TOKENS: list[str] = [
-    "Silicone", "ABS", "PVC", "Metallo", "PU", "TPE", "TPR", "Plastica", "Acciaio",
+    "Silicone",
+    "ABS",
+    "PVC",
+    "Metallo",
+    "PU",
+    "TPE",
+    "TPR",
+    "Plastica",
+    "Acciaio",
 ]
 _MATERIAL_TOKENS_LOWER: set[str] = {t.lower() for t in _MATERIAL_TOKENS}
 # Canonical casing map: lowercase → display form.
@@ -147,6 +161,7 @@ _FIELD_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 # ---------------------------------------------------------------------------
 # Field-level helper functions
 # ---------------------------------------------------------------------------
+
 
 def _normalise_dimensioni(raw: str) -> str:
     """
@@ -344,9 +359,8 @@ def _extract_disposal_codes_from_ocr(text: str) -> dict[str, ExtractedField]:
         canonical_codes.append((prefix, formatted))
 
     # --- Assignment ---
-    scatola_candidates: list[tuple[int, str]] = []   # (rank, formatted)
+    scatola_candidates: list[tuple[int, str]] = []  # (rank, formatted)
     sacchetto_candidates: list[str] = []
-    extra_plastic_candidates: list[str] = []
 
     for prefix, formatted in canonical_codes:
         if formatted is None:
@@ -422,6 +436,7 @@ def _extract_disposal_codes_from_text(text: str) -> dict[str, str]:
 # Main extraction function
 # ---------------------------------------------------------------------------
 
+
 def extract_text_fields(pdf_path: Path) -> PackData:
     """
     Run the full text-extraction pipeline on a single PDF.
@@ -438,6 +453,7 @@ def extract_text_fields(pdf_path: Path) -> PackData:
     pack = PackData(codice_ean=ean)
 
     from src.ocr import extract_ocr_text  # local import to defer cold start
+
     full_text = extract_ocr_text(pdf_path)
     logger.info("OCR text obtained | ean={} | chars={}", ean, len(full_text))
 
@@ -451,9 +467,7 @@ def extract_text_fields(pdf_path: Path) -> PackData:
     if m:
         raw = m.group(1).strip()
         value = _normalise_dimensioni(raw)
-        pack.dimensioni = ExtractedField(
-            value=value, confidence=0.9, evidence=raw
-        )
+        pack.dimensioni = ExtractedField(value=value, confidence=0.9, evidence=raw)
         fields_found += 1
 
     # --- lotto ---
@@ -520,9 +534,7 @@ def extract_text_fields(pdf_path: Path) -> PackData:
     # --- tipo_o_modello (code-level) ---
     tipo = _extract_tipo_o_modello(full_text)
     if tipo:
-        pack.tipo_o_modello = ExtractedField(
-            value=tipo, confidence=0.85, evidence=tipo
-        )
+        pack.tipo_o_modello = ExtractedField(value=tipo, confidence=0.85, evidence=tipo)
         fields_found += 1
 
     # ------------------------------------------------------------------
@@ -573,8 +585,6 @@ def extract_text_fields(pdf_path: Path) -> PackData:
     if disposal_map:
         fields_found += 1
 
-    logger.info(
-        "Text extraction complete | ean={} | fields_found={}", ean, fields_found
-    )
+    logger.info("Text extraction complete | ean={} | fields_found={}", ean, fields_found)
 
     return pack

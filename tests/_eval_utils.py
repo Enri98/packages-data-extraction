@@ -3,7 +3,7 @@
 import json
 import re
 import unicodedata
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -19,12 +19,16 @@ _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 _SAMPLES_DIR = Path(__file__).parent.parent / "samples"
 
 PDF_TO_GOLDEN: dict[str, Path] = {
-    "8055712771306_220x80x45_Thomas Turbato.pdf":       _FIXTURES_DIR / "8055712771306_thomas_turbato.json",
-    "8055712772860_180x80x50_OSA_Fairy-Handcuffs.pdf":  _FIXTURES_DIR / "8055712772860_fairy_handcuffs.json",
-    "8055712772907_150x45x180_OSA_Gothic-Love.pdf":      _FIXTURES_DIR / "8055712772907_gothic_love.json",
-    "8055712774048_130x55x55_Disco-Booty.pdf":           _FIXTURES_DIR / "8055712774048_disco_booty.json",
-    "8055712774925_100x55x55_Tornado.pdf":               _FIXTURES_DIR / "8055712774925_tornado.json",
+    "8055712771306_220x80x45_Thomas Turbato.pdf": _FIXTURES_DIR
+    / "8055712771306_thomas_turbato.json",
+    "8055712772860_180x80x50_OSA_Fairy-Handcuffs.pdf": _FIXTURES_DIR
+    / "8055712772860_fairy_handcuffs.json",
+    "8055712772907_150x45x180_OSA_Gothic-Love.pdf": _FIXTURES_DIR
+    / "8055712772907_gothic_love.json",
+    "8055712774048_130x55x55_Disco-Booty.pdf": _FIXTURES_DIR / "8055712774048_disco_booty.json",
+    "8055712774925_100x55x55_Tornado.pdf": _FIXTURES_DIR / "8055712774925_tornado.json",
 }
+
 
 # Sentinel returned when the field name does not exist on PackData.
 class _NotInSchemaSentinel:
@@ -42,17 +46,19 @@ NOT_IN_SCHEMA = _NotInSchemaSentinel()
 # Outcome
 # ---------------------------------------------------------------------------
 
-class Outcome(str, Enum):
-    CORRECT      = "CORRECT"
-    WRONG        = "WRONG"
-    MISSING      = "MISSING"       # expected value present, actual is None/empty
-    UNEXPECTED   = "UNEXPECTED"    # expected empty/absent, actual has a value
+
+class Outcome(StrEnum):
+    CORRECT = "CORRECT"
+    WRONG = "WRONG"
+    MISSING = "MISSING"  # expected value present, actual is None/empty
+    UNEXPECTED = "UNEXPECTED"  # expected empty/absent, actual has a value
     NOT_IN_SCHEMA = "NOT_IN_SCHEMA"
 
 
 # ---------------------------------------------------------------------------
 # Core helpers
 # ---------------------------------------------------------------------------
+
 
 def run_deterministic(pdf_path: Path) -> PackData:
     """Run parser → stub-VLM → validator, return the merged PackData."""
@@ -91,9 +97,7 @@ def normalize(s: Any) -> Any:
     out = s.lower()
     # Strip accents: 'à' → 'a', 'ò' → 'o', etc. — Italian text from PDFs vs
     # OCR/VLM frequently disagrees on accent rendering.
-    out = "".join(
-        c for c in unicodedata.normalize("NFKD", out) if not unicodedata.combining(c)
-    )
+    out = "".join(c for c in unicodedata.normalize("NFKD", out) if not unicodedata.combining(c))
     out = re.sub(r"\s+", " ", out).strip()
     out = re.sub(r"\s*/\s*", "/", out)
 
@@ -163,7 +167,7 @@ def compare_field(expected: Any, actual: Any) -> Outcome:
         return Outcome.NOT_IN_SCHEMA
 
     expected_empty = _is_empty(expected)
-    actual_empty   = _is_empty(actual)
+    actual_empty = _is_empty(actual)
 
     if expected_empty and actual_empty:
         return Outcome.CORRECT
@@ -179,13 +183,14 @@ def compare_field(expected: Any, actual: Any) -> Outcome:
 
     # Normalise both sides to strings for comparison.
     norm_expected = normalize(str(expected))
-    norm_actual   = normalize(str(actual))
+    norm_actual = normalize(str(actual))
     return Outcome.CORRECT if norm_expected == norm_actual else Outcome.WRONG
 
 
 # ---------------------------------------------------------------------------
 # Per-PDF evaluation
 # ---------------------------------------------------------------------------
+
 
 def evaluate_pdf(pdf_path: Path, golden_path: Path) -> dict:
     """
@@ -206,14 +211,18 @@ def evaluate_pdf(pdf_path: Path, golden_path: Path) -> dict:
 
     fields: dict[str, dict] = {}
     counts: dict[str, int] = {
-        "correct": 0, "wrong": 0, "missing": 0, "unexpected": 0, "not_in_schema": 0
+        "correct": 0,
+        "wrong": 0,
+        "missing": 0,
+        "unexpected": 0,
+        "not_in_schema": 0,
     }
 
     for key, expected in golden.items():
-        if key.startswith("_"):   # metadata — skip
+        if key.startswith("_"):  # metadata — skip
             continue
 
-        actual  = extract_actual(pack, key)
+        actual = extract_actual(pack, key)
         outcome = compare_field(expected, actual)
 
         fields[key] = {"expected": expected, "actual": actual, "outcome": outcome}
@@ -224,7 +233,7 @@ def evaluate_pdf(pdf_path: Path, golden_path: Path) -> dict:
     accuracy = counts["correct"] / denominator if denominator > 0 else 0.0
 
     return {
-        "pdf":     pdf_path.name,
-        "fields":  fields,
+        "pdf": pdf_path.name,
+        "fields": fields,
         "summary": {**counts, "accuracy": accuracy},
     }

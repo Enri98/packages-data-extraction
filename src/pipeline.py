@@ -39,7 +39,6 @@ from src.sheets import has_ean_been_processed, write_pack, write_run_metadata
 from src.validator import validate
 from src.vlm import extract_visual_fields
 
-
 MAX_CONCURRENT_PDFS = int(os.getenv("MAX_CONCURRENT_PDFS", "3"))
 
 
@@ -80,9 +79,7 @@ def run_single(pdf_path: Path) -> PackData:
             # OCR is path-cached in src.ocr; if parsing already triggered it
             # this is a free lookup, otherwise it pays the OCR cost once.
             ocr_text = extract_ocr_text(pdf_path)
-            vlm_output = extract_visual_fields(
-                pdf_path, parser_output, ocr_text=ocr_text
-            )
+            vlm_output = extract_visual_fields(pdf_path, parser_output, ocr_text=ocr_text)
         except Exception as exc:
             raise PipelineError(pdf_path.name, "vlm", exc) from exc
         logger.info("VLM done | ean={}", ean)
@@ -118,9 +115,7 @@ async def run_batch(pdf_paths: list[Path]) -> list[PackData | Exception]:
     Returns results in input order; failed items are returned as exceptions,
     not raised, so the batch continues on partial failure.
     """
-    logger.info(
-        "Batch start | count={} | max_concurrent={}", len(pdf_paths), MAX_CONCURRENT_PDFS
-    )
+    logger.info("Batch start | count={} | max_concurrent={}", len(pdf_paths), MAX_CONCURRENT_PDFS)
 
     sem = asyncio.Semaphore(MAX_CONCURRENT_PDFS)
 

@@ -75,6 +75,7 @@ def _run_verify_sheet() -> None:
         logger.info("GOOGLE_SHEET_ID not set — skipping Sheet schema verification (exit 0).")
         sys.exit(0)
     from src.sheets import SheetConfigError, verify_sheet_schema
+
     try:
         verify_sheet_schema(sheet_id)
         sys.exit(0)

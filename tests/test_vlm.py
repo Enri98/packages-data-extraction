@@ -9,6 +9,9 @@ import pytest
 
 from src.schemas.pack import ExtractedField, PackData, PresenceField
 from src.vlm import (
+    _PRESENCE_FIELDS,
+    _VLM_OWNS_VISUAL,
+    _VLM_VERIFIES_TEXT,
     ExtractedFieldResponse,
     PresenceFieldResponse,
     VLMNotAuthorizedError,
@@ -18,12 +21,8 @@ from src.vlm import (
     _format_ocr_block,
     _merge_vlm_response,
     _require_live_gate,
-    _PRESENCE_FIELDS,
-    _VLM_OWNS_VISUAL,
-    _VLM_VERIFIES_TEXT,
     extract_visual_fields,
 )
-
 
 # ---------------------------------------------------------------------------
 # Authorization gate
@@ -41,9 +40,7 @@ class TestLiveGate:
         with pytest.raises(VLMNotAuthorizedError):
             _require_live_gate()
 
-    def test_raises_when_live_set_but_no_api_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_raises_when_live_set_but_no_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GEMINI_LIVE", "1")
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         with pytest.raises(VLMNotAuthorizedError, match="GEMINI_API_KEY"):

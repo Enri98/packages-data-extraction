@@ -4,8 +4,6 @@ Unit tests for src/validator.py.
 All tests are pure — no PDFs, no network, no disk access.
 """
 
-import pytest
-
 from src.schemas.pack import ExtractedField, PackData, PresenceField
 from src.validator import (
     REVIEW_THRESHOLD,
@@ -16,10 +14,10 @@ from src.validator import (
     validate,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _minimal_pack(**overrides) -> PackData:
     """Return a PackData with all envelope fields defaulted to empty."""
@@ -32,13 +30,16 @@ def _extracted(value: str | None, confidence: float, evidence: str | None = None
     return ExtractedField(value=value, confidence=confidence, evidence=evidence)
 
 
-def _presence(present: bool | None, confidence: float, evidence: str | None = None) -> PresenceField:
+def _presence(
+    present: bool | None, confidence: float, evidence: str | None = None
+) -> PresenceField:
     return PresenceField(present=present, confidence=confidence, evidence=evidence)
 
 
 # ---------------------------------------------------------------------------
 # _merge_field — ExtractedField
 # ---------------------------------------------------------------------------
+
 
 class TestMergeFieldExtracted:
     def test_higher_confidence_wins_parser(self) -> None:
@@ -125,6 +126,7 @@ class TestMergeFieldExtracted:
 # _merge_field — PresenceField
 # ---------------------------------------------------------------------------
 
+
 class TestMergeFieldPresence:
     def test_higher_confidence_wins(self) -> None:
         parser = _presence(True, confidence=0.9)
@@ -165,6 +167,7 @@ class TestMergeFieldPresence:
 #   - Mismatch → value = None, confidence=0.2
 #   - Insufficient data → value = None, confidence=0.0 (default ExtractedField)
 # ---------------------------------------------------------------------------
+
 
 class TestCheckTrimanConsistency:
     def test_match_returns_label(self) -> None:
@@ -249,6 +252,7 @@ class TestCheckTrimanConsistency:
 # _required_symbols_present
 # ---------------------------------------------------------------------------
 
+
 class TestRequiredSymbolsPresent:
     def test_all_present_returns_empty_list(self) -> None:
         pack = _minimal_pack(
@@ -311,6 +315,7 @@ class TestRequiredSymbolsPresent:
 # validate (integration of the full function)
 # ---------------------------------------------------------------------------
 
+
 class TestValidate:
     def _high_confidence_pack(self) -> PackData:
         """A pack with high confidence on all envelope fields present in the schema."""
@@ -371,7 +376,7 @@ class TestValidate:
     def test_needs_review_true_when_required_symbol_absent(self) -> None:
         parser = _minimal_pack(
             tipo_o_modello=_extracted("Vibrator X", 0.98),
-            simbolo_ce=_presence(False, 0.95),   # CE explicitly absent
+            simbolo_ce=_presence(False, 0.95),  # CE explicitly absent
             simbolo_raee=_presence(True, 0.95),
             simbolo_triman=_presence(True, 0.95),
         )
@@ -388,9 +393,7 @@ class TestValidate:
         assert result.overall_confidence <= 0.5
 
     def test_deterministic_fields_taken_from_parser(self) -> None:
-        parser = _minimal_pack(
-            dimensioni=ExtractedField(value="17cm x Ø5.7cm", confidence=0.9)
-        )
+        parser = _minimal_pack(dimensioni=ExtractedField(value="17cm x Ø5.7cm", confidence=0.9))
         vlm = _minimal_pack(
             codice_ean="9999999999999",
             dimensioni=ExtractedField(value="25cm x Ø3cm", confidence=0.6),
@@ -466,7 +469,7 @@ class TestValidate:
     def test_flagged_fields_contain_low_confidence_fields(self) -> None:
         # tipo_o_modello replaces the removed nome_prodotto field; same role.
         parser = _minimal_pack(
-            tipo_o_modello=_extracted("Product", 0.2),   # low confidence
+            tipo_o_modello=_extracted("Product", 0.2),  # low confidence
             simbolo_ce=_presence(True, 0.9),
             simbolo_raee=_presence(True, 0.9),
             simbolo_triman=_presence(True, 0.9),
@@ -506,9 +509,7 @@ class TestBackfillDisposalDigitsFromSimboli:
         from src.validator import _backfill_disposal_digits_from_simboli
 
         pack = self._empty_pack()
-        pack.simboli_materiali_smaltimento = ExtractedField(
-            value="PAP21 / CPE07", confidence=0.9
-        )
+        pack.simboli_materiali_smaltimento = ExtractedField(value="PAP21 / CPE07", confidence=0.9)
         pack.codice_smaltimento_scatola = ExtractedField(value="PAP21", confidence=0.9)
         _backfill_disposal_digits_from_simboli(pack)
         assert pack.codice_smaltimento_scatola.value == "PAP21"
@@ -529,9 +530,7 @@ class TestBackfillDisposalDigitsFromSimboli:
         from src.validator import _backfill_disposal_digits_from_simboli
 
         pack = self._empty_pack()
-        pack.simboli_materiali_smaltimento = ExtractedField(
-            value="PAP21 / CPE07", confidence=0.9
-        )
+        pack.simboli_materiali_smaltimento = ExtractedField(value="PAP21 / CPE07", confidence=0.9)
         # sacchetto starts empty.
         _backfill_disposal_digits_from_simboli(pack)
         assert pack.codice_smaltimento_sacchetto.value == "CPE07"

@@ -3,9 +3,9 @@ Throwaway debug script: dump OCR text for each sample PDF to stdout.
 Usage: .venv\Scripts\python.exe scripts/dump_ocr_text.py
 """
 
+import json
 import sys
 import tempfile
-import json
 from pathlib import Path
 
 # Make src importable from repo root
@@ -26,9 +26,9 @@ for pdf in pdfs:
     text = extract_ocr_text(pdf)
     lines = text.splitlines()
     output[pdf.name] = lines
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"PDF: {pdf.name}")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
     for i, line in enumerate(lines, start=1):
         print(f"{i:4d} | {repr(line)}")
     print(f"--- END ({len(text)} chars, {len(lines)} lines) ---")

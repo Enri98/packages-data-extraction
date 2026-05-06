@@ -39,17 +39,17 @@ import httpx
 from dotenv import load_dotenv
 
 # Load .env before any module reads os.environ. No-op in production where
-# env vars are injected by Cloud Run / Secret Manager.
+# env vars are injected by Cloud Run / Secret Manager. Imports below MUST
+# stay below this call — they pull in modules that read os.environ at import.
 load_dotenv()
-from fastapi import FastAPI, HTTPException, Request, status
-from google.auth.transport.requests import Request as GoogleRequest
-from google.oauth2 import service_account
-from loguru import logger
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Request, status  # noqa: E402
+from google.auth.transport.requests import Request as GoogleRequest  # noqa: E402
+from google.oauth2 import service_account  # noqa: E402
+from loguru import logger  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 
-from src.pipeline import PipelineError, run_single
-from src.secrets import get_secret, load_service_account_info
-
+from src.pipeline import PipelineError, run_single  # noqa: E402
+from src.secrets import get_secret, load_service_account_info  # noqa: E402
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
@@ -77,6 +77,7 @@ def _make_json_sink(stream: Any) -> Any:
     ``request_id`` set by the correlation-ID middleware) is included at the
     top level of the JSON object.
     """
+
     def _sink(message: Any) -> None:
         record = message.record
         severity = _SEVERITY_MAP.get(record["level"].name, "DEFAULT")
@@ -109,6 +110,7 @@ app = FastAPI(title="fustelle-extractor", version="0.1.0")
 
 class DriveEventPayload(BaseModel):
     """Minimal Eventarc Drive change notification shape."""
+
     kind: str
     fileId: str
     fileName: str | None = None  # enriched by the handler if missing
@@ -132,6 +134,7 @@ async def _startup_verify_sheet() -> None:
         return
     try:
         from src.sheets import verify_sheet_schema
+
         verify_sheet_schema(sheet_id)
     except Exception as exc:
         logger.critical(
@@ -186,6 +189,7 @@ async def ready() -> dict:
     if not _ocr_engine_warmed:
         try:
             from src.ocr import _get_engine
+
             _get_engine()
             _ocr_engine_warmed = True
         except Exception as exc:
@@ -194,6 +198,7 @@ async def ready() -> dict:
     # 3. Sheet connectivity.
     try:
         from src.sheets import get_sheet_client
+
         get_sheet_client()
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"sheet: {exc}")

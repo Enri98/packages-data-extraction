@@ -38,13 +38,12 @@ from src.schemas.pack import PackData  # noqa: E402
 from src.validator import validate  # noqa: E402
 from src.vlm import VLMNotAuthorizedError, extract_visual_fields  # noqa: E402
 from tests._eval_utils import (  # noqa: E402
+    _SAMPLES_DIR,
     PDF_TO_GOLDEN,
     Outcome,
-    _SAMPLES_DIR,
     compare_field,
     extract_actual,
 )
-
 
 # Rough cost estimate per VLM call. Gemini 2.5 Pro on a small fustella PDF
 # is well under 1 cent at current pricing; padded here for safety.
@@ -52,9 +51,9 @@ _EST_COST_PER_CALL_USD = 0.03
 
 MODES: tuple[tuple[str, bool, bool], ...] = (
     # (label, run_vlm, ocr_grounding)
-    ("parser",          False, False),
-    ("vlm-image",       True,  False),
-    ("vlm-image+ocr",   True,  True),
+    ("parser", False, False),
+    ("vlm-image", True, False),
+    ("vlm-image+ocr", True, True),
 )
 
 _CACHE_DIR = _REPO_ROOT / "eval_vlm_cache"

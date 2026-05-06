@@ -81,9 +81,7 @@ def load_service_account_info(env_var: str = "GOOGLE_SERVICE_ACCOUNT_JSON") -> d
         try:
             return json.loads(candidate.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"Service account file at {raw!r} is not valid JSON: {exc}"
-            ) from exc
+            raise ValueError(f"Service account file at {raw!r} is not valid JSON: {exc}") from exc
 
     # Otherwise treat as inline JSON content (Cloud Run injection path).
     logger.debug("Parsing service account from inline JSON content")

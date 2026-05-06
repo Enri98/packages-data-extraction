@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import time
 from pathlib import Path
-
-import sys
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -23,10 +22,10 @@ import pypdfium2 as pdfium  # noqa: E402
 from rapidocr_onnxruntime import RapidOCR  # noqa: E402
 
 from src.parsing import _FIELD_PATTERNS  # noqa: E402
+
 SAMPLES_DIR = REPO_ROOT / "samples"
 RENDERS_DIR = REPO_ROOT / "scripts" / "ocr_renders"
 FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures"
-
 
 
 DPI = 300
@@ -87,7 +86,7 @@ def compare(actual: str | None, expected: object) -> str:
 
 def run() -> None:
     pdfs = sorted(SAMPLES_DIR.glob("*.pdf"))
-    print(f"Loading RapidOCR (downloads ~50MB models on first run)...")
+    print("Loading RapidOCR (downloads ~50MB models on first run)...")
     t0 = time.perf_counter()
     ocr = RapidOCR()
     print(f"OCR engine ready in {time.perf_counter() - t0:.1f}s\n")
@@ -119,9 +118,9 @@ def run() -> None:
 
         print(f"  render={render_secs:.1f}s  ocr={ocr_secs:.1f}s  pages={len(pngs)}")
         print(f"  ocr_avg_confidence={avg_conf:.2f}  total_chars={len(full_text)}")
-        print(f"  --- OCR text (first 800 chars) ---")
+        print("  --- OCR text (first 800 chars) ---")
         print(f"  {full_text[:800].replace(chr(10), ' / ')}")
-        print(f"  --- Regex matches ---")
+        print("  --- Regex matches ---")
 
         for field_name, pattern in _FIELD_PATTERNS:
             m = pattern.search(full_text)
@@ -129,7 +128,9 @@ def run() -> None:
             expected = golden.get(field_name)
             outcome = compare(actual, expected)
             aggregate[field_name][outcome] = aggregate[field_name].get(outcome, 0) + 1
-            print(f"    {field_name:42s}  expected={str(expected)[:30]:30s}  actual={str(actual)[:30]:30s}  {outcome}")
+            print(
+                f"    {field_name:42s}  expected={str(expected)[:30]:30s}  actual={str(actual)[:30]:30s}  {outcome}"
+            )
         print()
 
     print("=" * 100)
@@ -138,7 +139,9 @@ def run() -> None:
     print("-" * 90)
     for fn in field_names:
         r = aggregate[fn]
-        print(f"{fn:45s} {r.get('CORRECT', 0):>8d} {r.get('PARTIAL', 0):>8d} {r.get('WRONG', 0):>8d} {r.get('MISSING', 0):>8d}")
+        print(
+            f"{fn:45s} {r.get('CORRECT', 0):>8d} {r.get('PARTIAL', 0):>8d} {r.get('WRONG', 0):>8d} {r.get('MISSING', 0):>8d}"
+        )
 
 
 if __name__ == "__main__":

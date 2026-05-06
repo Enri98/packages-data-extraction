@@ -5,15 +5,16 @@ Tests that open a real PDF use the `sample_pdf_path` fixture and are
 automatically skipped when no sample PDFs are present in samples/.
 """
 
-import pytest
 from pathlib import Path
 
-from src.parsing import parse_filename, extract_text_fields, _extract_disposal_codes_from_ocr
+import pytest
 
+from src.parsing import _extract_disposal_codes_from_ocr, extract_text_fields, parse_filename
 
 # ---------------------------------------------------------------------------
 # parse_filename — pure function tests (no I/O, no network)
 # ---------------------------------------------------------------------------
+
 
 def test_parse_filename_valid() -> None:
     ean, dims, name = parse_filename("8055712771306_220x80x45_Thomas Turbato.pdf")
@@ -69,6 +70,7 @@ def test_parse_filename_returns_tuple_of_three_strings() -> None:
 # extract_text_fields — integration tests (require sample PDFs)
 # ---------------------------------------------------------------------------
 
+
 def test_extract_text_fields_returns_packdata(sample_pdf_path: Path) -> None:
     result = extract_text_fields(sample_pdf_path)
     assert result.codice_ean
@@ -80,14 +82,11 @@ def test_extract_text_fields_deterministic_fields(sample_pdf_path: Path) -> None
     assert result.nome_del_fabbricante == "MySecretCase s.r.l."
 
 
-
 def test_extract_text_fields_confidence_bounds(sample_pdf_path: Path) -> None:
     """All confidence values in the result must be in [0.0, 1.0]."""
     result = extract_text_fields(sample_pdf_path)
     for field_name, conf in result.confidence_map().items():
-        assert 0.0 <= conf <= 1.0, (
-            f"Field '{field_name}' has confidence {conf} outside [0, 1]"
-        )
+        assert 0.0 <= conf <= 1.0, f"Field '{field_name}' has confidence {conf} outside [0, 1]"
 
 
 def test_extract_text_fields_manufacturer_constant(sample_pdf_path: Path) -> None:
@@ -118,6 +117,7 @@ def test_extract_text_fields_dimensioni_is_product_format(sample_pdf_path: Path)
 # ---------------------------------------------------------------------------
 # _extract_disposal_codes_from_ocr — pure function tests (no I/O)
 # ---------------------------------------------------------------------------
+
 
 def test_disposal_codes_joined_form() -> None:
     """Joined forms like 'PAP21' and 'CPE07' in one OCR block are extracted correctly."""

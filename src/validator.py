@@ -25,7 +25,6 @@ from dataclasses import dataclass
 
 from src.schemas.pack import ExtractedField, PackData, PresenceField
 
-
 REVIEW_THRESHOLD = 0.75  # packs below this overall confidence go to review_queue
 MIN_POPULATED_FIELDS = 10  # below this many populated fields, treat as low-signal
 
@@ -121,24 +120,16 @@ def validate(parser_output: PackData, vlm_output: PackData) -> ValidationResult:
     review_reasons: list[str] = []
     for field_name in low_confidence_fields:
         val = getattr(merged_pack, field_name)
-        review_reasons.append(
-            f"Low confidence ({val.confidence:.2f}) on field '{field_name}'"
-        )
+        review_reasons.append(f"Low confidence ({val.confidence:.2f}) on field '{field_name}'")
     for field_name in absent_symbols:
-        review_reasons.append(
-            f"Required symbol absent or uncertain: '{field_name}'"
-        )
+        review_reasons.append(f"Required symbol absent or uncertain: '{field_name}'")
     if sparse_evidence:
         review_reasons.append(
             f"Sparse evidence: only {len(confidences)} populated fields "
             f"(threshold={MIN_POPULATED_FIELDS}) — confidence computed on thin signal"
         )
 
-    needs_review = (
-        overall_confidence < REVIEW_THRESHOLD
-        or bool(absent_symbols)
-        or sparse_evidence
-    )
+    needs_review = overall_confidence < REVIEW_THRESHOLD or bool(absent_symbols) or sparse_evidence
 
     return ValidationResult(
         pack=merged_pack,
@@ -158,6 +149,7 @@ def _merge_field(
     Higher confidence wins; ties go to the parser (deterministic preferred).
     If values disagree and both confidence >= 0.5, record a conflict note.
     """
+
     # Determine whether either side is effectively empty.
     def _has_data(field: ExtractedField | PresenceField | None) -> bool:
         if field is None:
@@ -203,9 +195,7 @@ def _merge_field(
         conflict_note = f" [CONFLICT: other source said: {loser_val}]"
         new_evidence = (winner.evidence or "") + conflict_note
 
-        return winner.model_copy(
-            update={"confidence": new_confidence, "evidence": new_evidence}
-        )
+        return winner.model_copy(update={"confidence": new_confidence, "evidence": new_evidence})
 
     return winner.model_copy()
 
@@ -293,7 +283,9 @@ def _backfill_disposal_digits_from_simboli(pack: PackData) -> None:
             # Don't bump confidence above the source field; reuse simboli's
             # confidence as a proxy, but cap at 0.85 so a confident later
             # source can still overrule.
-            field.confidence = min(0.85, max(field.confidence, pack.simboli_materiali_smaltimento.confidence))
+            field.confidence = min(
+                0.85, max(field.confidence, pack.simboli_materiali_smaltimento.confidence)
+            )
 
 
 def _check_triman_consistency(pack: PackData) -> ExtractedField:

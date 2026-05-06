@@ -16,7 +16,6 @@ Not responsible for:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 from loguru import logger
@@ -25,7 +24,7 @@ from loguru import logger
 # Singleton engine
 # ---------------------------------------------------------------------------
 
-_engine: Optional[object] = None  # RapidOCR instance; loaded on first call
+_engine: object | None = None  # RapidOCR instance; loaded on first call
 
 
 def _get_engine() -> object:
@@ -34,6 +33,7 @@ def _get_engine() -> object:
     if _engine is None:
         logger.info("Loading RapidOCR engine (cold start ~1.6 s)...")
         from rapidocr_onnxruntime import RapidOCR  # type: ignore[import-untyped]
+
         _engine = RapidOCR()
         logger.info("RapidOCR engine ready.")
     return _engine
@@ -50,14 +50,15 @@ _OCR_CACHE: dict[Path, str] = {}
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _render_page_to_array(page: object, scale: float) -> "np.ndarray":
+
+def _render_page_to_array(page: object, scale: float) -> np.ndarray:
     """Render a single pypdfium2 page to an RGB numpy array at *scale* factor."""
     bitmap = page.render(scale=scale)  # type: ignore[attr-defined]
     pil_image = bitmap.to_pil()
     return np.array(pil_image)
 
 
-def _ocr_page(engine: object, img_array: "np.ndarray") -> str:
+def _ocr_page(engine: object, img_array: np.ndarray) -> str:
     """
     Run RapidOCR on a single page image array and return the page text.
 
@@ -73,6 +74,7 @@ def _ocr_page(engine: object, img_array: "np.ndarray") -> str:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def extract_ocr_text(pdf_path: Path) -> str:
     """
@@ -107,8 +109,7 @@ def extract_ocr_text(pdf_path: Path) -> str:
         import pypdfium2 as pdfium  # type: ignore[import-untyped]
     except ImportError as exc:
         raise RuntimeError(
-            "pypdfium2 is required for OCR extraction. "
-            "Install it with: uv add pypdfium2"
+            "pypdfium2 is required for OCR extraction. Install it with: uv add pypdfium2"
         ) from exc
 
     engine = _get_engine()
@@ -138,5 +139,3 @@ def extract_ocr_text(pdf_path: Path) -> str:
         len(full_text),
     )
     return full_text
-
-

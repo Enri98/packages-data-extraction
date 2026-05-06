@@ -26,7 +26,7 @@ Tabs required in the target Sheet:
   run_metadata  — one row per pipeline run (including errors)
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import gspread
 from loguru import logger
@@ -35,7 +35,6 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from src.schemas.pack import ExtractedField, PackData, PresenceField
 from src.secrets import load_service_account_info
 from src.validator import ValidationResult
-
 
 PACK_DATA_TAB = "pack_data"
 REVIEW_QUEUE_TAB = "review_queue"
@@ -54,14 +53,16 @@ CELL_NA = "N/A"
 # feature" rather than "not applicable / not printed". Per the Fairy-Handcuffs
 # golden fixture: these fields encode absence as the boolean `false`, which
 # the example row renders as ❌.
-COUNT_LIKE_FIELDS: frozenset[str] = frozenset({
-    "n_vibrazioni",
-    "n_velocita",
-    "n_modalita_suzione",
-    "n_modalita_tapping",
-    "n_modalita_rotazione",
-    "codice_smaltimento_doypack",
-})
+COUNT_LIKE_FIELDS: frozenset[str] = frozenset(
+    {
+        "n_vibrazioni",
+        "n_velocita",
+        "n_modalita_suzione",
+        "n_modalita_tapping",
+        "n_modalita_rotazione",
+        "codice_smaltimento_doypack",
+    }
+)
 
 
 class SheetConfigError(Exception):
@@ -156,7 +157,7 @@ def write_run_metadata(
     client = get_sheet_client()
     spreadsheet = client.open_by_key(sheet_id)
 
-    row = [datetime.now(timezone.utc).isoformat(), filename, outcome, latency_ms, error or ""]
+    row = [datetime.now(UTC).isoformat(), filename, outcome, latency_ms, error or ""]
     headers = ["timestamp", "filename", "outcome", "latency_ms", "error"]
 
     @retry(
@@ -178,9 +179,7 @@ def write_run_metadata(
     )
 
 
-def _ean_in_run_metadata_success(
-    spreadsheet: gspread.Spreadsheet, ean: str
-) -> bool:
+def _ean_in_run_metadata_success(spreadsheet: gspread.Spreadsheet, ean: str) -> bool:
     """Return True if run_metadata records a successful run for this EAN.
 
     `run_metadata` is the source of truth for "have we processed this EAN":
@@ -292,9 +291,7 @@ def _ensure_headers(worksheet: gspread.Worksheet, headers: list[str]) -> None:
     )
 
 
-def _get_or_create_worksheet(
-    spreadsheet: gspread.Spreadsheet, title: str
-) -> gspread.Worksheet:
+def _get_or_create_worksheet(spreadsheet: gspread.Spreadsheet, title: str) -> gspread.Worksheet:
     """
     Return the worksheet with the given title, creating it if absent.
     Separated from _ensure_headers so each caller controls header schema independently.

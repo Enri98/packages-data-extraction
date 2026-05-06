@@ -1,13 +1,11 @@
 """Pytest-based eval for the deterministic (parser + validator, no VLM) pipeline."""
 
-from pathlib import Path
-
 import pytest
 
 from tests._eval_utils import (
+    _SAMPLES_DIR,
     PDF_TO_GOLDEN,
     Outcome,
-    _SAMPLES_DIR,
     evaluate_pdf,
 )
 
@@ -25,7 +23,7 @@ def test_deterministic_accuracy(pdf_name: str) -> None:
 
     # TODO: raise the floor (e.g. 0.5, then 0.7) as the parser matures.
     """
-    pdf_path    = _SAMPLES_DIR / pdf_name
+    pdf_path = _SAMPLES_DIR / pdf_name
     golden_path = PDF_TO_GOLDEN[pdf_name]
 
     if not pdf_path.exists():
@@ -70,6 +68,7 @@ def test_deterministic_accuracy(pdf_name: str) -> None:
 # Aggregate test across all 3 PDFs
 # ---------------------------------------------------------------------------
 
+
 def test_aggregate_accuracy() -> None:
     """
     Run all 3 PDFs and assert overall accuracy >= 0.0.
@@ -77,7 +76,11 @@ def test_aggregate_accuracy() -> None:
     # TODO: raise this floor as the parser matures.
     """
     total: dict[str, int] = {
-        "correct": 0, "wrong": 0, "missing": 0, "unexpected": 0, "not_in_schema": 0
+        "correct": 0,
+        "wrong": 0,
+        "missing": 0,
+        "unexpected": 0,
+        "not_in_schema": 0,
     }
     # field_name → {outcome_value → count}
     per_field: dict[str, dict[str, int]] = {}
@@ -95,7 +98,9 @@ def test_aggregate_accuracy() -> None:
             total[k] += report["summary"][k]
 
         for field, info in report["fields"].items():
-            bucket = per_field.setdefault(field, {"correct": 0, "wrong": 0, "missing": 0, "unexpected": 0, "not_in_schema": 0})
+            bucket = per_field.setdefault(
+                field, {"correct": 0, "wrong": 0, "missing": 0, "unexpected": 0, "not_in_schema": 0}
+            )
             bucket[info["outcome"].value.lower()] += 1
 
     if skipped:
@@ -130,6 +135,4 @@ def test_aggregate_accuracy() -> None:
 
     print(f"{summary_line}{table}")
 
-    assert overall_accuracy >= 0.0, (
-        f"Aggregate accuracy check failed{summary_line}{table}"
-    )
+    assert overall_accuracy >= 0.0, f"Aggregate accuracy check failed{summary_line}{table}"
