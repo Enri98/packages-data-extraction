@@ -27,6 +27,7 @@ from src.schemas.pack import ExtractedField, PackData, PresenceField
 
 
 REVIEW_THRESHOLD = 0.75  # packs below this overall confidence go to review_queue
+MIN_POPULATED_FIELDS = 10  # below this many populated fields, treat as low-signal
 
 # Symbols that must appear on every pack by EU regulation.
 _REQUIRED_SYMBOL_FIELDS: list[str] = ["simbolo_ce", "simbolo_raee", "simbolo_triman"]
@@ -81,18 +82,30 @@ def validate(parser_output: PackData, vlm_output: PackData) -> ValidationResult:
     # Business rule: required regulatory symbols.
     absent_symbols = _required_symbols_present(merged_pack)
 
-    # Aggregate confidence from all envelope fields (Sheet fields only).
-    confidences: list[float] = [
-        val.confidence
-        for field_name in merged_pack._SHEET_FIELDS
-        for val in [getattr(merged_pack, field_name)]
-        if isinstance(val, (ExtractedField, PresenceField))
-    ]
+    # Aggregate confidence from populated envelope fields only — fields the VLM
+    # judged absent (value=None/N/A or present=None) are excluded so they don't
+    # drag the mean toward zero.
+    confidences: list[float] = []
+    for field_name in merged_pack._SHEET_FIELDS:
+        val = getattr(merged_pack, field_name)
+        if isinstance(val, ExtractedField):
+            if val.value not in (None, "", "N/A"):
+                confidences.append(val.confidence)
+        elif isinstance(val, PresenceField):
+            if val.present is not None:
+                confidences.append(val.confidence)
 
     overall_confidence = sum(confidences) / len(confidences) if confidences else 0.0
 
     # Absent required symbols cap the overall score — the pack cannot be trusted.
     if absent_symbols:
+        overall_confidence = min(overall_confidence, 0.5)
+
+    # Sparse-evidence guard: a pack with very few populated fields can score high
+    # on a tiny denominator (e.g. 3/30 fields all confident → 1.0). That's high
+    # confidence on thin evidence — cap it so the pack gets human eyes.
+    sparse_evidence = len(confidences) < MIN_POPULATED_FIELDS
+    if sparse_evidence:
         overall_confidence = min(overall_confidence, 0.5)
 
     # Collect low-confidence fields (excluding plain deterministic str fields).
@@ -115,8 +128,17 @@ def validate(parser_output: PackData, vlm_output: PackData) -> ValidationResult:
         review_reasons.append(
             f"Required symbol absent or uncertain: '{field_name}'"
         )
+    if sparse_evidence:
+        review_reasons.append(
+            f"Sparse evidence: only {len(confidences)} populated fields "
+            f"(threshold={MIN_POPULATED_FIELDS}) — confidence computed on thin signal"
+        )
 
-    needs_review = overall_confidence < REVIEW_THRESHOLD or bool(absent_symbols)
+    needs_review = (
+        overall_confidence < REVIEW_THRESHOLD
+        or bool(absent_symbols)
+        or sparse_evidence
+    )
 
     return ValidationResult(
         pack=merged_pack,

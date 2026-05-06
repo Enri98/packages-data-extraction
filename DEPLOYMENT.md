@@ -173,10 +173,10 @@ Steady state for ~50 PDFs/month:
 | Gemini 2.5 Pro (50 calls × ~$0.03–$0.07) | ~$1.50/mo |
 | Cloud Run (CPU/memory under always-free limits) | $0 |
 | Cloud Build (120 free build-minutes/day) | $0 |
-| Artifact Registry (under 0.5 GB free tier) | $0 |
+| Artifact Registry (image ~530 MB, slightly over the 0.5 GB free tier; cleanup policy keeps max 2 images, deletes >3 days old) | ~$0.05 – $0.15/mo |
 | Secret Manager (10K free access ops/mo) | $0 |
 | Cloud Logging (50 GiB free ingest/mo) | $0 |
-| **Total** | **~$1.50/mo** |
+| **Total** | **~$1.55 – $1.65/mo** |
 
 Watch out for:
 - Leaving `GEMINI_LIVE=1` set in a CI loop (every test pass would call Gemini).

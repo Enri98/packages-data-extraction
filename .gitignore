@@ -84,3 +84,12 @@ ignore/
 scripts/ocr_renders/
 eval_vlm_cache/
 
+# Submission draft
+SUBMISSION.md
+
+# Submission-run artifacts (private — eval scripts and raw metrics)
+scripts/run_submission_batch.py
+scripts/analyze_submission_metrics.py
+metrics_run_*.json
+analysis_*.json
+

@@ -151,6 +151,21 @@ class PackData(BaseModel):
             raise ValueError("codice_ean must not be empty")
         return self
 
+    @model_validator(mode="after")
+    def _sheet_fields_in_sync(self) -> "PackData":
+        declared = set(PackData.model_fields) - {"codice_ean"}
+        listed = set(self._SHEET_FIELDS)
+        missing_from_tuple = declared - listed
+        extra_in_tuple = listed - declared
+        if missing_from_tuple or extra_in_tuple:
+            parts: list[str] = []
+            if missing_from_tuple:
+                parts.append(f"missing from _SHEET_FIELDS: {sorted(missing_from_tuple)}")
+            if extra_in_tuple:
+                parts.append(f"extra in _SHEET_FIELDS (not in model): {sorted(extra_in_tuple)}")
+            raise ValueError("_SHEET_FIELDS is out of sync with PackData fields — " + "; ".join(parts))
+        return self
+
     # Sheet column names in declaration order (excludes codice_ean).
     _SHEET_FIELDS: tuple[str, ...] = (
         "nome_del_fabbricante",

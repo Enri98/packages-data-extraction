@@ -28,6 +28,7 @@ Environment variables consumed:
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 import uuid
@@ -265,7 +266,4 @@ async def process(request: Request) -> dict:
             return {"status": "accepted", "ean": None}
 
     finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
-        if tmp_dir.exists():
-            tmp_dir.rmdir()
+        shutil.rmtree(tmp_dir, ignore_errors=True)

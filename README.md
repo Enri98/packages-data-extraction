@@ -5,7 +5,7 @@ structured row appears in a Google Sheet — 34 fields, each with a confidence
 score, and rows that need a human eye automatically flagged into a review
 queue.
 
-The PDFs are *fustelle*: Italian printable layouts for sex-toy packaging.
+The PDFs are *fustelle*: Italian printable layouts for consumers' products packaging.
 Each one carries product text, regulatory icons (CE, RAEE, TRIMAN…), QR
 codes, recycling material codes, and a few brand-constant labels. The
 pipeline is hybrid by design — deterministic parsing where the data is
@@ -76,9 +76,12 @@ notebooks/      EDA only, not part of the production path
 
 ## Costs
 
-Steady state for ~50 PDFs/month: roughly **$1.50/mo** in Gemini API calls, and
-$0 in Google Cloud (everything fits inside the always-free tier when pinned to
-`us-central1` with `min-instances=0`). A $5/mo budget alert in Cloud Billing
+Steady state for ~50 PDFs/month: roughly **$1.50/mo** in Gemini API calls plus
+**~$0.05–$0.15/mo** for Artifact Registry (the container image is ~530 MB,
+slightly above the 0.5 GB free tier; a cleanup policy caps it at 2 retained
+images). Everything else (Cloud Run, Cloud Build, Secret Manager, Cloud
+Logging, Sheets, Drive) stays inside the always-free tier when pinned to
+`us-central1` with `min-instances=0`. A $5/mo budget alert in Cloud Billing
 is recommended to catch any drift.
 
 ## Documentation
