@@ -19,19 +19,7 @@ all three well, so the pipeline is layered.
 
 ## End-to-end flow
 
-```mermaid
-flowchart LR
-    A[PDF dropped in<br/>Drive folder] -->|polled every 5 min| B[Apps Script<br/>time-driven trigger]
-    B -->|POST /process<br/>OIDC ID token| C[Cloud Run<br/>private service]
-    C --> D[parse_filename<br/>EAN, dimensions, name]
-    D --> E[OCR<br/>rapidocr @ 300dpi]
-    E --> F[Text parser<br/>regex + spatial rules]
-    F --> G[VLM<br/>Gemini 2.5 Pro]
-    G --> H[Validator<br/>merge + confidence]
-    H --> I[(Google Sheet<br/>pack_data)]
-    H -.low-confidence.-> J[(review_queue)]
-    H --> K[(run_metadata)]
-```
+![Fustelle extraction pipeline](img/fustelle-diagram.png)
 
 The same `run_single(pdf_path)` function powers the local CLI and the Cloud
 Run server, which keeps the unit test surface honest — the server adds nothing
