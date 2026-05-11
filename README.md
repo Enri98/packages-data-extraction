@@ -12,6 +12,8 @@ pipeline is hybrid by design — deterministic parsing where the data is
 reliable, a VLM (Gemini 2.5 Pro) for visual icons and gap-fill, and a
 validator that reconciles the two with per-field confidence scoring.
 
+![Architecture diagram](img/fustelle-diagram.png)
+
 ## How it runs in production
 
 ```
